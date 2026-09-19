@@ -1,0 +1,592 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/config.schema.json",
+  "title": "TracePoint run configuration",
+  "description": "A TracePoint load test. Written as YAML or JSON. At least one runner section (http, db, redis) must be present. Storage runners double as probes: their latency is a direct health signal for that tier while the app is under load. Unknown keys are rejected with a suggestion.",
+  "type": "object",
+  "required": ["version"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Configuration format version. Only 1 exists.",
+      "const": 1,
+      "examples": [1]
+    },
+    "run": { "$ref": "#/$defs/run" },
+    "slo": { "$ref": "#/$defs/slo" },
+    "safety": { "$ref": "#/$defs/safety" },
+    "http": { "$ref": "#/$defs/http" },
+    "db": { "$ref": "#/$defs/db" },
+    "redis": { "$ref": "#/$defs/redis" },
+    "telemetry": { "$ref": "#/$defs/telemetry" },
+    "capacity": { "$ref": "#/$defs/capacity" }
+  },
+  "anyOf": [
+    { "required": ["http"] },
+    { "required": ["db"] },
+    { "required": ["redis"] }
+  ],
+
+  "$defs": {
+    "duration": {
+      "description": "A Go duration string: a number and a unit, optionally repeated. Units: ns, us, ms, s, m, h.",
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+      "examples": ["250ms", "30s", "3m", "1h30m"]
+    },
+    "ratio": {
+      "description": "A fraction between 0 and 1 inclusive.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "examples": [0.01, 0.5]
+    },
+    "templateString": {
+      "description": "A string that may contain template tokens: {{var}} from an earlier step's extract, {{feedername.column}} from a CSV feeder, or a generator - randInt a b, randString n, uuid, seq, pick a|b|c, now. ${ENV} and ${ENV:-default} are interpolated at load time, before templating.",
+      "type": "string",
+      "examples": ["${BASE_URL}/api/items/{{randInt 1 100000}}", "session:{{uuid}}"]
+    },
+
+    "run": {
+      "description": "Timing and determinism for the whole run. One monotonic clock is shared by every runner and sampler.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Human label for the run, shown in reports and stored in the run directory.",
+          "type": "string",
+          "examples": ["checkout-baseline"]
+        },
+        "duration": {
+          "allOf": [{ "$ref": "#/$defs/duration" }],
+          "description": "Total load duration, excluding graceful drain. Executor stages, when given, must sum to this.",
+          "default": "1m",
+          "examples": ["3m"]
+        },
+        "bucket": {
+          "allOf": [{ "$ref": "#/$defs/duration" }],
+          "description": "Width of the shared time bucket every layer is recorded into. Smaller buckets localise incidents better but need more traffic to stay above min_samples.",
+          "default": "1s",
+          "examples": ["1s", "500ms"]
+        },
+        "warmup": {
+          "allOf": [{ "$ref": "#/$defs/duration" }],
+          "description": "Leading period excluded from summaries, baselines and SLO evaluation. Shaded in charts. Use it to let pools fill and caches warm.",
+          "default": "0s",
+          "examples": ["15s"]
+        },
+        "grace": {
+          "allOf": [{ "$ref": "#/$defs/duration" }],
+          "description": "How long to let in-flight work drain after arrivals stop before the context is cancelled.",
+          "default": "30s",
+          "examples": ["30s"]
+        },
+        "timeout": {
+          "allOf": [{ "$ref": "#/$defs/duration" }],
+          "description": "Default per-operation timeout for every runner. Individual requests, queries and commands may override it. Also sets how long a bucket waits before sealing.",
+          "default": "10s",
+          "examples": ["10s"]
+        },
+        "seed": {
+          "description": "Seed for every random choice: weighted picks, generators and Poisson arrivals. Recorded in result.json so a run can be reproduced. Omit to draw one and record it.",
+          "type": "integer",
+          "minimum": 0,
+          "examples": [42]
+        },
+        "arrival": {
+          "description": "Arrival process for open-model executors. uniform spaces arrivals evenly along the rate profile; poisson draws exponential gaps with the same mean, which is a better model of independent users and produces natural bursts.",
+          "enum": ["uniform", "poisson"],
+          "default": "uniform",
+          "examples": ["poisson"]
+        },
+        "min_samples": {
+          "description": "Buckets with fewer than this many completed operations are marked insufficient: they are displayed but never used as evidence for a hot bucket, an incident or a verdict.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "examples": [20]
+        },
+        "tags": {
+          "description": "Free-form key/value labels copied into result.json - useful for correlating runs with commits, environments or tickets.",
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "examples": [{ "env": "staging", "commit": "a1b2c3d" }]
+        }
+      }
+    },
+
+    "sloTarget": {
+      "description": "Latency and error budgets for one runner. Evaluated on response_time (what a user feels), not service_time. A breach makes the run exit 1.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "p95": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "95th percentile response time budget.", "examples": ["150ms"] },
+        "p99": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "99th percentile response time budget. Also the default hot-bucket threshold for this runner.", "examples": ["250ms"] },
+        "error_rate": { "allOf": [{ "$ref": "#/$defs/ratio" }], "description": "Maximum share of operations that may fail.", "examples": [0.01] }
+      }
+    },
+    "slo": {
+      "description": "Per-runner service level objectives. Keys are runner names: http, db, redis.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "http": { "$ref": "#/$defs/sloTarget" },
+        "db": { "$ref": "#/$defs/sloTarget" },
+        "redis": { "$ref": "#/$defs/sloTarget" }
+      }
+    },
+
+    "safety": {
+      "description": "Limits this configuration accepts. Safety can only tighten the human-granted policy (--policy, TRACEPOINT_POLICY); it can never widen it. A value looser than policy is a refusal, not a warning.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow_writes": {
+          "description": "Permit SQL statements and Redis commands classified as writes. Without it, writes are refused at load time.",
+          "type": "boolean",
+          "default": false
+        },
+        "allow_dangerous": {
+          "description": "Permit destructive or administrative statements (DROP, TRUNCATE, ALTER, FLUSHALL, FLUSHDB, SHUTDOWN, CONFIG SET, DEBUG, SCRIPT FLUSH). Almost never correct against a shared database.",
+          "type": "boolean",
+          "default": false
+        },
+        "allow_targets": {
+          "description": "Hosts, IPs or CIDRs that may be targeted even though they are public. Loopback, private and link-local addresses are always allowed. Public targets not listed here are refused with exit 2.",
+          "type": "array",
+          "items": { "type": "string" },
+          "examples": [["api.staging.example.com", "203.0.113.0/24"]]
+        },
+        "allow_insecure_tls": {
+          "description": "Permit tls.insecure_skip_verify. When used, every report says so.",
+          "type": "boolean",
+          "default": false
+        },
+        "max_rate_per_runner": {
+          "description": "Ceiling on offered operations per second for any single runner.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "examples": [500]
+        },
+        "max_in_flight": {
+          "description": "Ceiling on concurrent in-flight operations for any single runner.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "examples": [2000]
+        },
+        "max_duration": {
+          "allOf": [{ "$ref": "#/$defs/duration" }],
+          "description": "Ceiling on run.duration.",
+          "examples": ["10m"]
+        },
+        "abort_guard": { "$ref": "#/$defs/abortGuard" }
+      }
+    },
+    "abortGuard": {
+      "description": "Stops the run early when the target is clearly failing, so a broken deployment is not hammered. Connection errors, timeouts and 5xx count; 4xx and 429 do not.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "description": "Whether the guard is armed.", "type": "boolean", "default": true },
+        "error_ratio": { "allOf": [{ "$ref": "#/$defs/ratio" }], "description": "Failure share that trips the guard.", "default": 0.5 },
+        "window": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "How long the ratio must hold before aborting.", "default": "10s" }
+      }
+    },
+
+    "stage": {
+      "description": "One segment of a load profile. The value ramps linearly from the previous stage's target (or from 0 at the start) to this target over this duration; equal targets hold flat.",
+      "type": "object",
+      "required": ["duration", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "duration": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Length of this segment.", "examples": ["30s"] },
+        "target": {
+          "description": "Value reached at the end of the segment: operations per second for arrival-rate, virtual users for vus.",
+          "type": "number",
+          "minimum": 0,
+          "examples": [200]
+        }
+      }
+    },
+    "executor": {
+      "description": "How work is generated. arrival-rate is the open model: arrivals fire on a schedule regardless of whether the target keeps up, which is what makes latency coordinated-omission correct. vus is the closed model: a fixed population of virtual users each loop as fast as the target allows, which throttles itself when the target slows.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "Executor model. Use arrival-rate to measure how a system behaves at a load level; use vus to model a bounded user population.",
+          "enum": ["arrival-rate", "vus"],
+          "default": "arrival-rate"
+        },
+        "rate": {
+          "description": "Shorthand for a single constant arrival-rate stage lasting run.duration. Mutually exclusive with stages.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "examples": [40]
+        },
+        "vus": {
+          "description": "Shorthand for a single constant vus stage lasting run.duration. Mutually exclusive with stages.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "examples": [50]
+        },
+        "stages": {
+          "description": "Piecewise-linear profile. Stage durations must sum to run.duration.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/stage" }
+        },
+        "max_in_flight": {
+          "description": "Worker ceiling for arrival-rate. When every worker is busy and the dispatch queue is full, the arrival is dropped and counted rather than delayed without bound. Little's Law sizes it: rate x p99 service time.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "default": 256,
+          "examples": [400]
+        },
+        "queue_depth": {
+          "description": "Depth of the bounded dispatch queue in front of the workers. Absorbs brief bursts without hiding sustained overload.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 64
+        },
+        "pick": {
+          "description": "For vus: whether each virtual user re-picks a weighted request or journey every iteration, or is pinned to one for the whole run.",
+          "enum": ["per-iteration", "per-vu"],
+          "default": "per-iteration"
+        }
+      },
+      "not": { "required": ["rate", "stages"] },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "vus" } }, "required": ["type"] },
+          "then": { "not": { "required": ["rate"] } },
+          "else": { "not": { "required": ["vus"] } }
+        }
+      ]
+    },
+
+    "expect": {
+      "description": "What a successful response looks like. A response that fails an expectation is recorded as an error and, in a journey, stops the iteration.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "status": {
+          "description": "Acceptable status codes. Defaults to any 2xx or 3xx.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 100, "maximum": 599 },
+          "examples": [[200], [201, 202]]
+        },
+        "json": {
+          "description": "Assertions against the JSON body, evaluated with gjson paths.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "description": "gjson path into the response body.", "type": "string", "examples": ["data.id", "items.#"] },
+              "exists": { "description": "Require the path to be present.", "type": "boolean" },
+              "equals": { "description": "Require the value at the path to equal this, compared as JSON." }
+            }
+          }
+        },
+        "max_body_bytes": {
+          "description": "Fail the response if the body exceeds this size. Bodies are read and discarded, never stored.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "examples": [1048576]
+        }
+      }
+    },
+    "extract": {
+      "description": "Values pulled out of a response and made available to later steps in the same journey as {{name}}. If an extraction fails at runtime the step fails with extract_failed and the iteration stops - a literal {{token}} is never sent.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "description": "Variable name later steps reference as {{name}}.", "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$", "examples": ["order_id"] },
+          "from": { "description": "Where to read from.", "enum": ["body", "header", "status"], "default": "body" },
+          "path": { "description": "A gjson path when from is body, a header name when from is header, ignored when from is status.", "type": "string", "examples": ["data.id", "Location"] }
+        }
+      }
+    },
+    "thinkTime": {
+      "description": "Pause after a step, modelling a user reading the page. Think time is excluded from journey duration and from every latency statistic.",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "description": "Distribution of the pause.", "enum": ["constant", "uniform", "exponential"] },
+        "duration": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Pause for type constant." },
+        "min": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Lower bound for type uniform." },
+        "max": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Upper bound for type uniform." },
+        "mean": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Mean for type exponential." }
+      }
+    },
+
+    "httpStep": {
+      "description": "One HTTP call. A top-level request is a single-step journey; inside a journey, steps run in order and share extracted variables and a cookie jar.",
+      "type": "object",
+      "required": ["name", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "Label for this call. Labels group statistics; keep them stable and low-cardinality - never put an id in a name.", "type": "string", "examples": ["list-items"] },
+        "weight": { "description": "Relative probability of being picked, among top-level requests or journeys. Ignored on journey steps.", "type": "number", "exclusiveMinimum": 0, "default": 1, "examples": [3] },
+        "method": { "description": "HTTP method.", "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], "default": "GET" },
+        "url": { "allOf": [{ "$ref": "#/$defs/templateString" }], "description": "Absolute URL, or a path when http.base_url is set.", "examples": ["${BASE_URL}/api/items"] },
+        "headers": { "description": "Per-call headers, merged over http.headers. Authorization and Cookie values are redacted from every artifact.", "type": "object", "additionalProperties": { "$ref": "#/$defs/templateString" }, "examples": [{ "Content-Type": "application/json" }] },
+        "body": { "allOf": [{ "$ref": "#/$defs/templateString" }], "description": "Request body. Mutually exclusive with body_file.", "examples": ["{\"title\":\"{{randString 12}}\"}"] },
+        "body_file": { "description": "Path to a file used as the request body, read once at load time. Mutually exclusive with body.", "type": "string" },
+        "timeout": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Per-call timeout, overriding run.timeout." },
+        "expect": { "$ref": "#/$defs/expect" },
+        "extract": { "$ref": "#/$defs/extract" },
+        "think": { "$ref": "#/$defs/thinkTime" }
+      },
+      "not": { "required": ["body", "body_file"] }
+    },
+    "feeder": {
+      "description": "A CSV file supplying parameter data. Columns are referenced as {{feedername.column}}.",
+      "type": "object",
+      "required": ["name", "file"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "Feeder name used in template tokens.", "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$", "examples": ["users"] },
+        "file": { "description": "Path to a CSV file with a header row.", "type": "string", "examples": ["testdata/users.csv"] },
+        "mode": {
+          "description": "How rows are handed out: sequential cycles in order, random samples with replacement, unique gives every iteration a distinct row and fails when the file is exhausted.",
+          "enum": ["sequential", "random", "unique"],
+          "default": "sequential"
+        }
+      }
+    },
+    "tls": {
+      "description": "TLS settings for this runner.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "insecure_skip_verify": { "description": "Skip certificate verification. Requires safety.allow_insecure_tls, marks the run degraded and is printed in every report.", "type": "boolean", "default": false },
+        "server_name": { "description": "SNI server name override.", "type": "string" },
+        "ca_file": { "description": "PEM bundle of trusted roots.", "type": "string" },
+        "cert_file": { "description": "Client certificate for mutual TLS.", "type": "string" },
+        "key_file": { "description": "Private key for cert_file.", "type": "string" }
+      }
+    },
+    "http": {
+      "description": "The application tier: the traffic whose latency users actually feel. Provide either requests (each becomes a single-step journey) or journeys, never both.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base_url": { "description": "Prefix for step URLs that are written as paths.", "type": "string", "examples": ["${BASE_URL}"] },
+        "headers": { "description": "Headers added to every request, overridable per step.", "type": "object", "additionalProperties": { "$ref": "#/$defs/templateString" } },
+        "traceparent": { "description": "Inject a W3C traceparent header so an APM can join TracePoint traffic to its own traces.", "type": "boolean", "default": false },
+        "executor": { "$ref": "#/$defs/executor" },
+        "transport": {
+          "description": "Connection behaviour. Defaults are sized from the executor so the client is not the bottleneck.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_idle_conns_per_host": { "description": "Idle connection pool per host. Defaults to max_in_flight so keep-alive actually holds.", "type": "integer", "exclusiveMinimum": 0 },
+            "http2": { "description": "Allow HTTP/2 negotiation.", "type": "boolean", "default": true },
+            "keep_alive": { "description": "Reuse connections. Turning this off measures connection setup on every request.", "type": "boolean", "default": true },
+            "tls": { "$ref": "#/$defs/tls" }
+          }
+        },
+        "feeders": { "description": "CSV data sources for this runner.", "type": "array", "items": { "$ref": "#/$defs/feeder" } },
+        "requests": { "description": "Weighted single calls. Sugar for one-step journeys.", "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/httpStep" } },
+        "journeys": {
+          "description": "Weighted multi-step user journeys.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "steps"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "description": "Journey label.", "type": "string", "examples": ["browse-and-buy"] },
+              "weight": { "description": "Relative probability of being picked.", "type": "number", "exclusiveMinimum": 0, "default": 1 },
+              "steps": { "description": "Ordered steps. Each step may use variables extracted by earlier steps.", "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/httpStep" } }
+            }
+          }
+        }
+      },
+      "not": { "required": ["requests", "journeys"] },
+      "anyOf": [{ "required": ["requests"] }, { "required": ["journeys"] }]
+    },
+
+    "db": {
+      "description": "The SQL tier. This runner is both load and probe: it queries the database directly, so its latency is a direct health signal for the database while the application is under load.",
+      "type": "object",
+      "required": ["driver", "dsn", "queries"],
+      "additionalProperties": false,
+      "properties": {
+        "driver": { "description": "Database driver. Aliases such as postgresql and psql normalise to postgres.", "enum": ["postgres", "mysql", "sqlite"], "examples": ["postgres"] },
+        "dsn": { "description": "Connection string. Use ${ENV} - passwords are redacted from every artifact.", "type": "string", "examples": ["${PG_DSN}"] },
+        "executor": { "$ref": "#/$defs/executor" },
+        "pool": {
+          "description": "Connection pool. Connections are acquired explicitly so pool wait is timed apart from query time.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_open": { "description": "Maximum open connections. Defaults to the executor's worker count. A warning is raised when this exceeds the server's max_connections.", "type": "integer", "exclusiveMinimum": 0, "examples": [20] },
+            "max_idle": { "description": "Maximum idle connections. Defaults to max_open so connections are not churned.", "type": "integer", "minimum": 0 },
+            "conn_max_lifetime": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Maximum age of a connection before it is retired." },
+            "conn_max_idle_time": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Maximum idle time before a connection is retired." }
+          }
+        },
+        "tag_sessions": { "description": "Set application_name to tracepoint/<run-id> (Postgres) so test traffic is identifiable in pg_stat_activity.", "type": "boolean", "default": true },
+        "comment_queries": { "description": "Prefix each statement with a sqlcommenter-style comment carrying the run id and label, so slow logs and pg_stat_statements can attribute test traffic.", "type": "boolean", "default": false },
+        "queries": {
+          "description": "Weighted statements. Each item is either a single sql statement or a tx unit of statements run in one transaction.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "description": "Label for this statement.", "type": "string", "examples": ["by-id"] },
+              "weight": { "description": "Relative probability of being picked.", "type": "number", "exclusiveMinimum": 0, "default": 1, "examples": [5] },
+              "type": { "description": "Read or write. Authoritative: it overrides the statement-text heuristic and drives the write guard.", "enum": ["read", "write"], "examples": ["read"] },
+              "sql": { "allOf": [{ "$ref": "#/$defs/templateString" }], "description": "A single statement. Mutually exclusive with tx.", "examples": ["SELECT * FROM items WHERE id = $1"] },
+              "args": {
+                "description": "Bind arguments, in order. An argument that is exactly one generator keeps its native type, so {{randInt 1 100}} binds as an integer.",
+                "type": "array",
+                "items": { "anyOf": [{ "$ref": "#/$defs/templateString" }, { "type": ["number", "boolean", "null"] }] },
+                "examples": [["{{randInt 1 100000}}"]]
+              },
+              "tx": {
+                "description": "Statements executed in one transaction and timed as one unit. Mutually exclusive with sql.",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["sql"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "sql": { "allOf": [{ "$ref": "#/$defs/templateString" }], "description": "Statement text." },
+                    "args": { "description": "Bind arguments for this statement.", "type": "array", "items": { "anyOf": [{ "$ref": "#/$defs/templateString" }, { "type": ["number", "boolean", "null"] }] } }
+                  }
+                }
+              },
+              "timeout": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Per-statement timeout, overriding run.timeout." },
+              "prepare": { "description": "Use a prepared statement. Preflight prepares every statement regardless, to catch typos without executing them.", "type": "boolean", "default": false }
+            },
+            "oneOf": [{ "required": ["sql"] }, { "required": ["tx"] }]
+          }
+        }
+      }
+    },
+
+    "redis": {
+      "description": "The cache tier. Like db, this runner is both load and probe.",
+      "type": "object",
+      "required": ["commands"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "description": "Client topology.", "enum": ["single", "cluster", "sentinel"], "default": "single" },
+        "addr": { "description": "host:port for mode single. Mutually exclusive with addrs.", "type": "string", "examples": ["${REDIS_ADDR}"] },
+        "addrs": { "description": "Node addresses for cluster or sentinel. Mutually exclusive with addr.", "type": "array", "items": { "type": "string" } },
+        "master_name": { "description": "Sentinel master name, required for mode sentinel.", "type": "string" },
+        "username": { "description": "ACL username.", "type": "string" },
+        "password": { "description": "Password. Use ${ENV}; it is redacted from every artifact.", "type": "string", "examples": ["${REDIS_PASSWORD}"] },
+        "db": { "description": "Logical database index. Not valid for cluster mode.", "type": "integer", "minimum": 0, "default": 0 },
+        "tls": { "$ref": "#/$defs/tls" },
+        "executor": { "$ref": "#/$defs/executor" },
+        "pool": {
+          "description": "Connection pool. Sized at or above the worker count so pool wait does not masquerade as Redis latency.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": { "description": "Connections per node. Defaults to the executor's worker count.", "type": "integer", "exclusiveMinimum": 0 },
+            "min_idle": { "description": "Idle connections kept ready.", "type": "integer", "minimum": 0 }
+          }
+        },
+        "commands": {
+          "description": "Weighted commands, each an argument array.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "description": "Label for this command.", "type": "string", "examples": ["get-session"] },
+              "weight": { "description": "Relative probability of being picked.", "type": "number", "exclusiveMinimum": 0, "default": 1, "examples": [4] },
+              "type": { "description": "Read or write, overriding the classification derived from the command name.", "enum": ["read", "write"] },
+              "cmd": {
+                "description": "Command and arguments. Mutually exclusive with pipeline.",
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/$defs/templateString" },
+                "examples": [["GET", "session:{{randInt 1 50000}}"]]
+              },
+              "pipeline": {
+                "description": "Several commands sent in one round trip and timed as one unit. Mutually exclusive with cmd.",
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/templateString" } }
+              },
+              "timeout": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Per-command timeout, overriding run.timeout." }
+            },
+            "oneOf": [{ "required": ["cmd"] }, { "required": ["pipeline"] }]
+          }
+        }
+      },
+      "oneOf": [{ "required": ["addr"] }, { "required": ["addrs"] }]
+    },
+
+    "samplerToggle": {
+      "description": "Either a boolean to enable a sampler with its defaults, or an object to configure it.",
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "description": "Whether this sampler runs.", "type": "boolean", "default": true },
+            "interval": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Sampling interval, overriding telemetry.interval." },
+            "dsn": { "description": "Separate read-only connection string for sampling. Defaults to the runner's DSN.", "type": "string" },
+            "statements": { "description": "Postgres only: collect a top-N snapshot from pg_stat_statements at the end of the run.", "type": "boolean", "default": false },
+            "latency": { "description": "Redis only: read LATENCY LATEST, when the latency monitor is enabled on the server.", "type": "boolean", "default": false }
+          }
+        }
+      ],
+      "examples": [true, { "enabled": true, "interval": "2s" }]
+    },
+    "telemetry": {
+      "description": "Server-side health sampled on the same clock as the load, used to corroborate a verdict. Every sampler is read-only, uses one dedicated connection and fails soft: a missing permission degrades to 'unavailable: <reason>' rather than failing the run. Generator self-health is always collected.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interval": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Default sampling interval.", "default": "1s" },
+        "postgres": { "$ref": "#/$defs/samplerToggle" },
+        "mysql": { "$ref": "#/$defs/samplerToggle" },
+        "redis": { "$ref": "#/$defs/samplerToggle" }
+      }
+    },
+
+    "capacity": {
+      "description": "Turns the run into an auto-ramp capacity search: levels are tried until one breaks an SLO or plateaus, then the boundary is refined and confirmed.",
+      "type": "object",
+      "required": ["knob"],
+      "additionalProperties": false,
+      "properties": {
+        "knob": { "description": "What to raise between levels.", "enum": ["rate", "concurrency"], "examples": ["rate"] },
+        "runner": { "description": "Which runner the knob applies to.", "enum": ["http", "db", "redis"], "default": "http" },
+        "start": { "description": "First level.", "type": "number", "exclusiveMinimum": 0, "examples": [50] },
+        "max": { "description": "Ceiling; the search stops here even if nothing has broken.", "type": "number", "exclusiveMinimum": 0, "examples": [2000] },
+        "step_duration": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Length of each level, including the settle period.", "default": "1m" },
+        "settle": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Leading part of each level discarded before measuring. Defaults to 20% of step_duration." },
+        "cooldown": { "allOf": [{ "$ref": "#/$defs/duration" }], "description": "Idle gap between levels. Connections stay warm.", "default": "10s" },
+        "refine": { "description": "How to search between the last ok level and the first broken one: bisection, or linear:N for N evenly spaced levels.", "type": "string", "pattern": "^(bisect|linear:[0-9]+)$", "default": "bisect", "examples": ["bisect", "linear:4"] },
+        "resolution": { "description": "Stop refining once the gap between last-ok and first-broken is at or below this. Defaults to max(1, 5% of the broken level).", "type": "number", "exclusiveMinimum": 0 },
+        "confirm": { "description": "Re-run the boundary levels once; if either flips, report an unstable range instead of a point.", "type": "boolean", "default": true }
+      }
+    }
+  }
+}

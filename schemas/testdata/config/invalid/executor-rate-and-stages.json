@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "http": {
+    "requests": [
+      {
+        "name": "a",
+        "url": "u"
+      }
+    ],
+    "executor": {
+      "rate": 10,
+      "stages": [
+        {
+          "duration": "1s",
+          "target": 1
+        }
+      ]
+    }
+  }
+}

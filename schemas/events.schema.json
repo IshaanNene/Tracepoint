@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/events.schema.json",
+  "title": "TracePoint run event",
+  "description": "One line of events.ndjson, and of the stream produced by --events. The file is append-only and each line is a complete JSON object, so a reader can tail a live run. Events are ordered by seq, which starts at 1 and never repeats within a run. A reader must ignore event types and data fields it does not recognise: new types are added in minor versions.",
+  "type": "object",
+  "required": ["v", "seq", "type", "run_id", "t_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "description": "Event envelope version.", "const": 1 },
+    "seq": { "description": "Monotonic sequence number within the run, starting at 1.", "type": "integer", "minimum": 1, "examples": [1] },
+    "t_ms": { "description": "Milliseconds since the run's monotonic start. Negative before load begins, as during preflight.", "type": "number", "examples": [12000] },
+    "wall": { "description": "Wall-clock time of the event, for display and log correlation only.", "type": "string", "format": "date-time", "examples": ["2026-09-19T21:00:12Z"] },
+    "run_id": { "description": "Run this event belongs to.", "type": "string", "examples": ["20260919T210000Z-a1b2c3"] },
+    "type": {
+      "description": "What happened. run.finished is always the last event of a completed run and carries the digest.",
+      "enum": [
+        "run.started",
+        "preflight.completed",
+        "bucket.sealed",
+        "incident.opened",
+        "incident.closed",
+        "level.started",
+        "level.completed",
+        "warning",
+        "run.finished"
+      ],
+      "examples": ["bucket.sealed"]
+    },
+    "data": {
+      "description": "Payload, shaped by type. Shapes below are the guaranteed fields; more may be added.",
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "run.started" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "data": {
+            "description": "Run parameters, fixed for the run.",
+            "type": "object",
+            "required": ["duration_ms", "bucket_ms", "runners"],
+            "properties": {
+              "duration_ms": { "description": "Planned load duration.", "type": "number" },
+              "bucket_ms": { "description": "Bucket width.", "type": "number" },
+              "warmup_ms": { "description": "Warm-up length, excluded from summaries.", "type": "number" },
+              "seed": { "description": "Seed actually used, whether configured or drawn.", "type": "integer" },
+              "runners": { "description": "Runner names and kinds taking part.", "type": "array", "items": { "type": "object" } },
+              "config_hash": { "description": "SHA-256 of the effective, redacted configuration.", "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "bucket.sealed" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "data": {
+            "description": "A bucket closed and was reduced to its summary. Emitted once per runner per bucket; the main progress signal for a live reader.",
+            "type": "object",
+            "required": ["runner", "index", "n"],
+            "properties": {
+              "runner": { "description": "Runner name.", "type": "string" },
+              "index": { "description": "Bucket index from the run start.", "type": "integer", "minimum": 0 },
+              "n": { "description": "Completed operations in the bucket.", "type": "integer", "minimum": 0 },
+              "insufficient": { "description": "True when n is below run.min_samples, meaning this bucket is displayed but not used as evidence.", "type": "boolean" },
+              "warmup": { "description": "True when the bucket falls inside warm-up.", "type": "boolean" },
+              "response_p99_ms": { "description": "99th percentile response time.", "type": "number" },
+              "service_p99_ms": { "description": "99th percentile service time.", "type": "number" },
+              "error_ratio": { "description": "Share of operations that failed.", "type": "number" },
+              "rps": { "description": "Completed operations per second in the bucket.", "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["incident.opened", "incident.closed"] } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "data": {
+            "description": "An incident began or ended. Class is provisional while open and final when closed.",
+            "type": "object",
+            "required": ["incident_id", "class", "start_s"],
+            "properties": {
+              "incident_id": { "description": "Stable id within the run.", "type": "string" },
+              "class": { "description": "Incident class; see the result schema for meanings.", "type": "string" },
+              "start_s": { "description": "Seconds from run start.", "type": "number" },
+              "end_s": { "description": "Seconds from run start, on close.", "type": "number" },
+              "runners_hot": { "description": "Runners hot during the incident.", "type": "array", "items": { "type": "string" } },
+              "culprit": { "description": "Best-ranked culprit, when one can be named.", "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["level.started", "level.completed"] } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "data": {
+            "description": "A capacity-search level. Emitted only by capacity runs.",
+            "type": "object",
+            "required": ["level", "knob", "value"],
+            "properties": {
+              "level": { "description": "Level index, in the order tried.", "type": "integer", "minimum": 0 },
+              "knob": { "description": "rate or concurrency.", "type": "string" },
+              "value": { "description": "Knob value for this level.", "type": "number" },
+              "phase": { "description": "Where the level came from: doubling, refine or confirm.", "type": "string" },
+              "ok": { "description": "Whether the level held its SLOs, on completion.", "type": "boolean" },
+              "achieved_rps": { "description": "Measured throughput in the steady window.", "type": "number" },
+              "p99_ms": { "description": "Measured p99 response time in the steady window.", "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "warning" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "data": {
+            "description": "Something a human should know that did not stop the run: a degraded validity finding, an unavailable telemetry sampler, a deprecation.",
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "description": "Stable warning code, from the same registry as error codes.", "type": "string" },
+              "message": { "description": "One sentence, no secrets.", "type": "string" },
+              "severity": { "description": "How much it matters.", "enum": ["info", "warn", "error"] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "run.finished" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "data": {
+            "description": "Terminal event. Carries the exit code and the full digest, so a reader consuming only the event stream never has to open another file.",
+            "type": "object",
+            "required": ["status", "exit_code"],
+            "properties": {
+              "status": { "description": "How the run ended.", "enum": ["completed", "interrupted", "aborted", "failed"] },
+              "exit_code": { "description": "Process exit code the run resolved to.", "type": "integer" },
+              "digest": { "description": "The digest document; see digest.schema.json.", "type": "object" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

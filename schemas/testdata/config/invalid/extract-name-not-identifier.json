@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "http": {
+    "journeys": [
+      {
+        "name": "j",
+        "steps": [
+          {
+            "name": "s",
+            "url": "u",
+            "extract": [
+              {
+                "name": "order id",
+                "path": "a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,1867 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/result.schema.json",
+  "title": "TracePoint result",
+  "description": "The system of record for one run. Every other output - the terminal tables, the HTML report, the Markdown summary, the JUnit file and the agent digest - is a pure function of this document, so anything absent here cannot be shown anywhere. Latency is reported two ways throughout: response_time is measured from the scheduled send time and is what a user feels, service_time is measured from the moment a connection was in hand and is what the target actually did. SLOs are judged on response time; tier attribution uses service time.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tool",
+    "run",
+    "runners",
+    "analysis"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "description": "Version of this document's shape, MAJOR.MINOR. A reader written against 1.x must ignore unknown fields; a MAJOR bump means a migration is required. Tools that cannot migrate exit 3.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "examples": [
+        "1.0"
+      ]
+    },
+    "tool": {
+      "description": "The binary that produced this document.",
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Always tracepoint.",
+          "type": "string",
+          "examples": [
+            "tracepoint"
+          ]
+        },
+        "version": {
+          "description": "Release version, or dev for local builds.",
+          "type": "string",
+          "examples": [
+            "1.2.0"
+          ]
+        },
+        "commit": {
+          "description": "Source revision.",
+          "type": "string"
+        },
+        "date": {
+          "description": "Build timestamp.",
+          "type": "string"
+        },
+        "go": {
+          "description": "Go toolchain the binary was built with.",
+          "type": "string",
+          "examples": [
+            "go1.26.1"
+          ]
+        },
+        "os": {
+          "description": "Generator operating system.",
+          "type": "string",
+          "examples": [
+            "linux"
+          ]
+        },
+        "arch": {
+          "description": "Generator architecture.",
+          "type": "string",
+          "examples": [
+            "arm64"
+          ]
+        }
+      }
+    },
+    "run": {
+      "$ref": "#/$defs/run"
+    },
+    "config": {
+      "description": "The configuration that actually ran, after interpolation, defaults, overrides and policy clamping - with every secret redacted. Kept here so the result is self-sufficient: compare can diff two runs' settings, and `run --from` can reproduce one, without the original file.",
+      "type": "object",
+      "required": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "description": "SHA-256 of the canonical JSON encoding of effective, prefixed with the algorithm.",
+          "type": "string",
+          "examples": [
+            "sha256:9f86d081884c7d65"
+          ]
+        },
+        "effective": {
+          "description": "The redacted effective configuration, conforming to config.schema.json.",
+          "type": "object"
+        },
+        "source_path": {
+          "description": "Where the configuration was read from, or - for stdin.",
+          "type": "string"
+        },
+        "overrides": {
+          "description": "The --set overrides applied, in order.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "http.executor.rate=200"
+            ]
+          ]
+        },
+        "policy": {
+          "description": "The policy in force, conforming to policy.schema.json.",
+          "type": "object"
+        }
+      }
+    },
+    "runners": {
+      "description": "One entry per runner that took part, in configuration order. App runners carry the traffic whose latency users feel; storage runners are simultaneously load and probe.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/runner"
+      }
+    },
+    "telemetry": {
+      "$ref": "#/$defs/telemetry"
+    },
+    "analysis": {
+      "$ref": "#/$defs/analysis"
+    },
+    "capacity": {
+      "description": "Present only for capacity searches. Null or absent for an ordinary run.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/capacity"
+        }
+      ]
+    },
+    "warnings": {
+      "description": "Non-fatal notices raised anywhere during the run, in the order they occurred.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "artifacts": {
+      "description": "Where the run's files live, as paths relative to the run directory unless absolute.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_dir": {
+          "description": "The run directory itself.",
+          "type": "string",
+          "examples": [
+            "runs/20260919T210000Z-a1b2c3"
+          ]
+        },
+        "result": {
+          "description": "This document.",
+          "type": "string",
+          "examples": [
+            "result.json"
+          ]
+        },
+        "digest": {
+          "description": "The agent digest.",
+          "type": "string",
+          "examples": [
+            "digest.json"
+          ]
+        },
+        "report": {
+          "description": "The HTML report.",
+          "type": "string",
+          "examples": [
+            "report.html"
+          ]
+        },
+        "events": {
+          "description": "The event stream.",
+          "type": "string",
+          "examples": [
+            "events.ndjson"
+          ]
+        },
+        "config": {
+          "description": "The effective configuration as YAML.",
+          "type": "string",
+          "examples": [
+            "config.effective.yaml"
+          ]
+        },
+        "log": {
+          "description": "The run log.",
+          "type": "string",
+          "examples": [
+            "run.log"
+          ]
+        },
+        "raw": {
+          "description": "The optional per-operation raw sink, when --raw was used.",
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "run": {
+      "description": "Identity and timing of the run. All offsets in this document are milliseconds from the single monotonic start shared by every runner and sampler; wall-clock times are for display only.",
+      "type": "object",
+      "required": [
+        "id",
+        "started_at",
+        "status",
+        "duration_ms",
+        "bucket_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Run identifier: a UTC timestamp and a short random suffix. Also the run directory name.",
+          "type": "string",
+          "examples": [
+            "20260919T210000Z-a1b2c3"
+          ]
+        },
+        "name": {
+          "description": "Human label from run.name.",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Wall-clock start of load, after preflight.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "finished_at": {
+          "description": "Wall-clock end, after drain.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "How the run ended. completed ran to plan; interrupted was stopped by a signal or stop request and holds partial data; aborted was cut short by the abort guard; failed could not produce usable data.",
+          "enum": [
+            "completed",
+            "interrupted",
+            "aborted",
+            "failed"
+          ],
+          "examples": [
+            "completed"
+          ]
+        },
+        "duration_ms": {
+          "description": "Planned load duration, excluding drain.",
+          "type": "number",
+          "examples": [
+            180000
+          ]
+        },
+        "elapsed_ms": {
+          "description": "Actual load duration. Shorter than duration_ms when the run was interrupted or aborted.",
+          "type": "number"
+        },
+        "bucket_ms": {
+          "description": "Bucket width. Every runner and sampler shares it.",
+          "type": "number",
+          "examples": [
+            1000
+          ]
+        },
+        "bucket_count": {
+          "description": "Number of buckets the timeline spans.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "warmup_ms": {
+          "description": "Leading period excluded from every summary, baseline and SLO check.",
+          "type": "number",
+          "examples": [
+            15000
+          ]
+        },
+        "min_samples": {
+          "description": "Below this many operations a bucket is insufficient and is never used as evidence.",
+          "type": "integer",
+          "examples": [
+            20
+          ]
+        },
+        "seed": {
+          "description": "Seed actually used. Reusing it reproduces every random choice.",
+          "type": "integer",
+          "examples": [
+            42
+          ]
+        },
+        "arrival": {
+          "description": "Arrival process used by open-model executors.",
+          "enum": [
+            "uniform",
+            "poisson"
+          ]
+        },
+        "interrupted_reason": {
+          "description": "Why a run ended early, when it did.",
+          "type": "string",
+          "examples": [
+            "SIGINT",
+            "abort guard: 5xx above 50% for 10s"
+          ]
+        },
+        "tags": {
+          "description": "Labels copied from run.tags.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "host": {
+          "description": "The generator machine, for judging whether the generator could have been the bottleneck.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hostname": {
+              "description": "Generator hostname.",
+              "type": "string"
+            },
+            "cpus": {
+              "description": "Logical CPUs available.",
+              "type": "integer"
+            },
+            "gomaxprocs": {
+              "description": "GOMAXPROCS in force.",
+              "type": "integer"
+            },
+            "open_file_limit": {
+              "description": "Soft RLIMIT_NOFILE, which caps concurrent connections.",
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "quantiles": {
+      "description": "A latency distribution in milliseconds, read from a merged sketch with 1% relative accuracy. Quantiles are never averaged across buckets; they are always recomputed from merged sketches.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "p50": {
+          "description": "Median.",
+          "type": "number",
+          "examples": [
+            12.4
+          ]
+        },
+        "p90": {
+          "description": "90th percentile.",
+          "type": "number"
+        },
+        "p95": {
+          "description": "95th percentile.",
+          "type": "number"
+        },
+        "p99": {
+          "description": "99th percentile.",
+          "type": "number",
+          "examples": [
+            241.8
+          ]
+        },
+        "p999": {
+          "description": "99.9th percentile. Unreliable below a few thousand samples.",
+          "type": "number"
+        },
+        "max": {
+          "description": "Largest observation. Exact, not sketched.",
+          "type": "number"
+        },
+        "mean": {
+          "description": "Arithmetic mean. Exact, not sketched.",
+          "type": "number"
+        }
+      }
+    },
+    "errorCounts": {
+      "description": "Failures by class. Classes are fixed: adding one is a minor version change, so readers must tolerate unknown keys. A class absent from the object means zero.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "properties": {
+        "timeout": {
+          "description": "The operation exceeded its deadline.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "connection": {
+          "description": "Refused, reset or closed before a response.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "dns": {
+          "description": "Name resolution failed.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "tls": {
+          "description": "Handshake or certificate failure.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "pool_timeout": {
+          "description": "No connection became free within the deadline. A generator-side limit, not a target failure.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "http_4xx": {
+          "description": "A 4xx status outside the expected set. Does not count towards the abort guard.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "http_5xx": {
+          "description": "A 5xx status outside the expected set.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "expect_failed": {
+          "description": "The response arrived but failed a status or JSON expectation.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "extract_failed": {
+          "description": "A value a later step needed could not be extracted, so the iteration stopped.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "query_error": {
+          "description": "The database or Redis server returned an error.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "canceled": {
+          "description": "The operation was cut short by shutdown, not by the target.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "other": {
+          "description": "Anything unclassified.",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "examples": [
+        {
+          "timeout": 3,
+          "http_5xx": 12
+        }
+      ]
+    },
+    "sketch": {
+      "description": "A serialised relative-error sketch for the whole run, kept so compare can compute order-statistic confidence intervals on quantiles without the raw observations.",
+      "type": "object",
+      "required": [
+        "encoding",
+        "count",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "encoding": {
+          "description": "Wire format of data.",
+          "type": "string",
+          "examples": [
+            "ddsketch-proto-base64"
+          ]
+        },
+        "relative_accuracy": {
+          "description": "Guaranteed relative error of any quantile read from it.",
+          "type": "number",
+          "examples": [
+            0.01
+          ]
+        },
+        "count": {
+          "description": "Number of observations, needed for confidence intervals.",
+          "type": "integer",
+          "minimum": 0,
+          "examples": [
+            186420
+          ]
+        },
+        "data": {
+          "description": "Base64 of the serialised sketch.",
+          "type": "string"
+        }
+      }
+    },
+    "opSummary": {
+      "description": "Aggregate statistics over the measured window - the whole run excluding warm-up - for one runner or one label.",
+      "type": "object",
+      "required": [
+        "n",
+        "errors_total",
+        "error_ratio"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "n": {
+          "description": "Operations completed, successful or not.",
+          "type": "integer",
+          "minimum": 0,
+          "examples": [
+            186420
+          ]
+        },
+        "ok": {
+          "description": "Operations that succeeded and met every expectation.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors_total": {
+          "description": "Operations that failed.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "error_ratio": {
+          "description": "errors_total divided by n.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "examples": [
+            0.0008
+          ]
+        },
+        "errors": {
+          "$ref": "#/$defs/errorCounts"
+        },
+        "response_ms": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/quantiles"
+            }
+          ],
+          "description": "Response time: end minus the scheduled send time. Coordinated-omission corrected, and what SLOs are judged on."
+        },
+        "service_ms": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/quantiles"
+            }
+          ],
+          "description": "Service time: end minus the moment a connection was in hand. What the target did, and what tier attribution uses."
+        },
+        "client_wait_ms": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/quantiles"
+            }
+          ],
+          "description": "Time lost inside the generator: dispatch lag plus queue wait plus pool wait. When this dominates, the finding is about the generator, not the target."
+        },
+        "achieved_rps": {
+          "description": "Completed operations per second over the measured window.",
+          "type": "number",
+          "examples": [
+            199.4
+          ]
+        },
+        "bytes_in": {
+          "description": "Response bytes read. Bodies are drained and discarded, never stored.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes_out": {
+          "description": "Request bytes written.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "bucket": {
+      "description": "One sealed time bucket for one runner. Sealing happens once no in-flight operation can still land in it, after which the bucket is a fixed-size summary and its sketch is freed - which is why memory does not grow with run length.",
+      "type": "object",
+      "required": [
+        "i",
+        "t_ms",
+        "n"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "i": {
+          "description": "Bucket index from the run start.",
+          "type": "integer",
+          "minimum": 0,
+          "examples": [
+            42
+          ]
+        },
+        "t_ms": {
+          "description": "Offset of the bucket's start from the run start.",
+          "type": "number",
+          "examples": [
+            42000
+          ]
+        },
+        "n": {
+          "description": "Operations whose scheduled time fell in this bucket and which completed.",
+          "type": "integer",
+          "minimum": 0,
+          "examples": [
+            200
+          ]
+        },
+        "insufficient": {
+          "description": "True when n is below run.min_samples. Such buckets are drawn in charts but never used as evidence for a hot bucket, an incident or a verdict.",
+          "type": "boolean"
+        },
+        "warmup": {
+          "description": "True when the bucket falls inside warm-up and is therefore excluded from summaries and baselines.",
+          "type": "boolean"
+        },
+        "response_ms": {
+          "$ref": "#/$defs/quantiles"
+        },
+        "service_ms": {
+          "$ref": "#/$defs/quantiles"
+        },
+        "client_wait_ms": {
+          "$ref": "#/$defs/quantiles"
+        },
+        "errors": {
+          "$ref": "#/$defs/errorCounts"
+        },
+        "errors_total": {
+          "description": "Failures in this bucket.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "rps": {
+          "description": "Completed operations per second in this bucket.",
+          "type": "number"
+        },
+        "offered": {
+          "description": "Arrivals scheduled in this bucket, whether or not they were dispatched.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "dropped": {
+          "description": "Arrivals refused because every worker was busy and the dispatch queue was full. Never silently delayed.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "in_flight_max": {
+          "description": "Peak concurrent operations during the bucket. The x-axis of the strain finder and of Little's Law checks.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes_in": {
+          "description": "Response bytes read in this bucket.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "runner": {
+      "description": "Everything recorded for one runner. Storage runners double as probes: because they hit the datastore directly, their per-bucket latency is a health signal for that tier under the combined pressure of application traffic and this synthetic traffic.",
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "summary",
+        "buckets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Runner name: http, db or redis.",
+          "type": "string",
+          "examples": [
+            "db"
+          ]
+        },
+        "kind": {
+          "description": "app for the tier users talk to, storage for a probe-and-load tier behind it.",
+          "enum": [
+            "app",
+            "storage"
+          ],
+          "examples": [
+            "storage"
+          ]
+        },
+        "driver": {
+          "description": "For db, the driver in use.",
+          "type": "string",
+          "examples": [
+            "postgres"
+          ]
+        },
+        "targets": {
+          "description": "Resolved targets, for the same-host caveat and the safety record. Credentials are redacted.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": {
+                "description": "Host as configured.",
+                "type": "string"
+              },
+              "addrs": {
+                "description": "Addresses it resolved to at preflight.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scope": {
+                "description": "Address classification driving the policy decision and the same-host caveat.",
+                "enum": [
+                  "loopback",
+                  "private",
+                  "link-local",
+                  "public"
+                ]
+              }
+            }
+          }
+        },
+        "labels": {
+          "description": "Labels seen, capped at 50 per runner; the overflow is collected under 'other'. Labels are request, step, query or command names - never raw URLs.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "by-id",
+              "insert-item"
+            ]
+          ]
+        },
+        "executor": {
+          "description": "What the executor actually did, as opposed to what was asked for. The gap between offered and dispatched is the first thing to check when a run is suspicious.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "description": "arrival-rate or vus.",
+              "type": "string"
+            },
+            "offered": {
+              "description": "Arrivals the schedule called for.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "dispatched": {
+              "description": "Arrivals handed to a worker.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "dropped": {
+              "description": "Arrivals refused for want of a worker. Above 1% this is reported, and it changes what the run can prove.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "dropped_ratio": {
+              "description": "dropped divided by offered.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "max_in_flight": {
+              "description": "Worker ceiling in force.",
+              "type": "integer"
+            },
+            "peak_in_flight": {
+              "description": "Highest concurrency actually reached. Equal to max_in_flight means the ceiling bound the run.",
+              "type": "integer"
+            },
+            "dispatch_lag_ms": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/quantiles"
+                }
+              ],
+              "description": "How late arrivals were handed out relative to their scheduled time. A p99 above max(5ms, 5% of a bucket) means the generator itself fell behind and the run is invalid."
+            },
+            "stages": {
+              "description": "The profile that ran.",
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "summary": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/opSummary"
+            }
+          ],
+          "description": "Whole-run statistics, excluding warm-up."
+        },
+        "labels_summary": {
+          "description": "Per-label statistics, keyed by label.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/opSummary"
+          }
+        },
+        "sketches": {
+          "description": "Merged whole-run sketches for significance testing in compare. The key __runner__ holds the runner-wide sketch; other keys are labels.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/sketch"
+          }
+        },
+        "buckets": {
+          "description": "The sealed timeline, in index order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bucket"
+          }
+        },
+        "label_buckets": {
+          "description": "Per-label timelines, keyed by label. Retained only while labels x buckets stays within the retention budget (see docs/adr/002); beyond it only the per-runner timeline above is kept, whole-run per-label statistics survive in labels_summary and sketches, and a LABEL_TIMELINE_DROPPED warning is recorded. Analysis never depends on this field.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/bucket"
+            }
+          }
+        },
+        "http": {
+          "description": "HTTP-specific detail.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status_histogram": {
+              "description": "Counts by status code, as strings. Used to detect a run that is measuring a rate limiter rather than a service.",
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "examples": [
+                {
+                  "200": 184000,
+                  "429": 2400
+                }
+              ]
+            },
+            "phases_ms": {
+              "description": "Where the time went inside a request, from httptrace.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "dns": {
+                  "$ref": "#/$defs/quantiles"
+                },
+                "connect": {
+                  "$ref": "#/$defs/quantiles"
+                },
+                "tls": {
+                  "$ref": "#/$defs/quantiles"
+                },
+                "conn_wait": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/quantiles"
+                    }
+                  ],
+                  "description": "Waiting for a connection from the client pool. Generator-side."
+                },
+                "ttfb": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/quantiles"
+                    }
+                  ],
+                  "description": "First byte after the request was written: the target's think time."
+                },
+                "transfer": {
+                  "$ref": "#/$defs/quantiles"
+                }
+              }
+            },
+            "conn_reuse_ratio": {
+              "description": "Share of requests served on a reused connection. A low value with keep-alive on usually means an undersized idle pool.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "insecure_tls": {
+              "description": "Whether certificate verification was disabled. Printed in every report when true.",
+              "type": "boolean"
+            }
+          }
+        },
+        "sql": {
+          "description": "SQL-specific detail.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reads": {
+              "description": "Operations classified as reads.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "writes": {
+              "description": "Operations classified as writes.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "pool": {
+              "description": "Pool behaviour from database/sql. Wait time here is generator-side, not database latency.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_open": {
+                  "description": "Configured ceiling.",
+                  "type": "integer"
+                },
+                "peak_in_use": {
+                  "description": "Highest number of connections simultaneously checked out.",
+                  "type": "integer"
+                },
+                "wait_count": {
+                  "description": "How many times a caller had to wait for a connection.",
+                  "type": "integer"
+                },
+                "wait_ms_total": {
+                  "description": "Total time spent waiting for connections.",
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "redis": {
+          "description": "Redis-specific detail.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reads": {
+              "description": "Commands classified as reads.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "writes": {
+              "description": "Commands classified as writes.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "pool": {
+              "description": "go-redis pool statistics. Timeouts or waits here are generator-side.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "size": {
+                  "description": "Configured pool size.",
+                  "type": "integer"
+                },
+                "hits": {
+                  "description": "Free connections found.",
+                  "type": "integer"
+                },
+                "misses": {
+                  "description": "Times a new connection had to be made.",
+                  "type": "integer"
+                },
+                "timeouts": {
+                  "description": "Waits that gave up.",
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "telemetry": {
+      "description": "Server-side and generator-side health sampled on the same offset clock as the load, so a spike can be lined up against what the datastore was doing. Every sampler is read-only and fails soft: when a permission is missing the sampler reports available: false with a reason instead of failing the run, and the verdict's confidence drops accordingly.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "generator": {
+          "description": "Self-health of the load generator, always collected. This is what distinguishes 'the target is slow' from 'we could not ask fast enough'.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "samples": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "t_ms": {
+                    "description": "Offset from the run start.",
+                    "type": "number"
+                  },
+                  "cpu_ratio": {
+                    "description": "Process CPU use as a fraction of one core times GOMAXPROCS.",
+                    "type": "number"
+                  },
+                  "goroutines": {
+                    "description": "Live goroutines.",
+                    "type": "integer"
+                  },
+                  "heap_bytes": {
+                    "description": "Heap in use. Flat across a soak run is the acceptance criterion.",
+                    "type": "integer"
+                  },
+                  "gc_pause_p99_ms": {
+                    "description": "99th percentile stop-the-world pause.",
+                    "type": "number"
+                  },
+                  "sched_latency_p99_ms": {
+                    "description": "99th percentile goroutine scheduling delay. Rising here means the generator is saturated.",
+                    "type": "number"
+                  },
+                  "dispatch_lag_p99_ms": {
+                    "description": "Per runner, how late arrivals were dispatched.",
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  },
+                  "in_flight": {
+                    "description": "Per runner, operations in flight at the sample.",
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "postgres": {
+          "$ref": "#/$defs/samplerSeries"
+        },
+        "mysql": {
+          "$ref": "#/$defs/samplerSeries"
+        },
+        "redis": {
+          "$ref": "#/$defs/samplerSeries"
+        }
+      }
+    },
+    "samplerSeries": {
+      "description": "One datastore sampler's output. Counter-style metrics are stored as deltas between samples, not as raw totals, so they can be read directly.",
+      "type": "object",
+      "required": [
+        "available"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "description": "False when the sampler could not run - usually a missing grant. The reason is given, and verdicts fall back to latency evidence alone.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why it was unavailable, in plain words.",
+          "type": "string",
+          "examples": [
+            "permission denied for pg_stat_activity; grant pg_read_all_stats"
+          ]
+        },
+        "interval_ms": {
+          "description": "Sampling interval actually used.",
+          "type": "number"
+        },
+        "samples": {
+          "description": "Samples in time order. Keys vary by sampler and are documented in docs/METHODOLOGY.md; readers must tolerate unknown keys.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "t_ms"
+            ],
+            "properties": {
+              "t_ms": {
+                "description": "Offset from the run start.",
+                "type": "number"
+              }
+            }
+          }
+        },
+        "statements": {
+          "description": "Postgres only: an end-of-run top-N from pg_stat_statements, when enabled. Query text is normalised by the server and never carries literal values.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "finding": {
+      "description": "A coded observation. Findings never carry free-form target output: strings taken from a target are truncated, stripped of control characters and labelled.",
+      "type": "object",
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "Stable identifier from the registry in docs/ERRORS.md.",
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "examples": [
+            "GENERATOR_BEHIND",
+            "SAME_HOST_TARGET"
+          ]
+        },
+        "severity": {
+          "description": "info is context, warn degrades the run, error invalidates it.",
+          "enum": [
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "message": {
+          "description": "One sentence a human can act on.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "Supporting numbers for the message.",
+          "type": "object"
+        },
+        "fix": {
+          "description": "What to change, concretely.",
+          "type": "string"
+        }
+      }
+    },
+    "analysis": {
+      "description": "Everything derived from the recorded data. Each field is produced by a pure function of the runners and telemetry above, so the same result always yields the same analysis.",
+      "type": "object",
+      "required": [
+        "validity",
+        "slo",
+        "verdict"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "validity": {
+          "description": "Whether this run can be believed at all. Read it before anything else: an invalid run measured the generator, not the target, and its verdict must not be interpreted.",
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "description": "valid means the generator kept up and nothing undermines the numbers. degraded means they are usable with a stated caveat. invalid means the generator, not the target, set the pace - the run proves nothing about the target and the CLI exits 4 unless --allow-invalid.",
+              "enum": [
+                "valid",
+                "degraded",
+                "invalid"
+              ],
+              "examples": [
+                "valid"
+              ]
+            },
+            "findings": {
+              "description": "Why it is not valid, if it is not.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/finding"
+              }
+            }
+          }
+        },
+        "slo": {
+          "description": "Budget evaluation on response time over the measured window. A breach makes the run exit 1.",
+          "type": "object",
+          "required": [
+            "pass"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "pass": {
+              "description": "True when every check passed. Absent budgets are not checks.",
+              "type": "boolean"
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "runner",
+                  "metric",
+                  "pass"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "runner": {
+                    "description": "Runner the budget applies to.",
+                    "type": "string"
+                  },
+                  "metric": {
+                    "description": "Which budget.",
+                    "enum": [
+                      "p95",
+                      "p99",
+                      "error_rate"
+                    ]
+                  },
+                  "budget": {
+                    "description": "The configured limit: milliseconds for latency, a ratio for error_rate.",
+                    "type": "number"
+                  },
+                  "actual": {
+                    "description": "The measured value in the same unit.",
+                    "type": "number"
+                  },
+                  "pass": {
+                    "description": "Whether actual is within budget.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "thresholds": {
+          "description": "The hot-bucket threshold each runner was judged against, and where it came from: an SLO, a flag, or the 100ms default.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "threshold_ms": {
+                "type": "number"
+              },
+              "source": {
+                "enum": [
+                  "slo",
+                  "flag",
+                  "default"
+                ]
+              }
+            }
+          }
+        },
+        "hot_buckets": {
+          "description": "Per runner, the buckets judged abnormal, with the rule that fired. absolute means p99 service time exceeded the threshold. relative means the bucket stood out against a rolling median of the previous 30 steady buckets by all three of: a modified z-score above 3.5, at least three times the median, and at least 5ms above it. Insufficient buckets are never hot.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "i",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "i": {
+                  "description": "Bucket index.",
+                  "type": "integer"
+                },
+                "reason": {
+                  "description": "Which rule fired.",
+                  "enum": [
+                    "absolute",
+                    "relative",
+                    "both"
+                  ]
+                },
+                "p99_ms": {
+                  "description": "Service-time p99 in the bucket.",
+                  "type": "number"
+                },
+                "baseline_ms": {
+                  "description": "Rolling median it was compared against.",
+                  "type": "number"
+                },
+                "mz_score": {
+                  "description": "Modified z-score against that rolling window.",
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "incidents": {
+          "description": "Hot buckets merged into episodes and classified. This, not a list of spikes, is what a reader should look at.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/incident"
+          }
+        },
+        "correlation": {
+          "description": "Whole-run Spearman rank correlation between the application p99 series and each storage probe's p99 series, evaluated at lags of minus three to plus three buckets. A positive best lag means the storage tier moved first, which is what one expects when the storage tier is the cause.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "storage",
+              "rho",
+              "best_lag_buckets"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "storage": {
+                "description": "Storage runner compared against the app.",
+                "type": "string",
+                "examples": [
+                  "db"
+                ]
+              },
+              "rho": {
+                "description": "Spearman rho at the best lag, from -1 to 1.",
+                "type": "number",
+                "examples": [
+                  0.82
+                ]
+              },
+              "best_lag_buckets": {
+                "description": "Lag maximising |rho|. Positive means storage led the app.",
+                "type": "integer",
+                "examples": [
+                  1
+                ]
+              },
+              "rho_by_lag": {
+                "description": "Rho at every lag tried, keyed by lag.",
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "n_buckets": {
+                "description": "Buckets that were sufficient in both series. Below about 30 the correlation is weak evidence.",
+                "type": "integer"
+              },
+              "lean": {
+                "description": "Which way the evidence points on this pair alone.",
+                "enum": [
+                  "storage",
+                  "app",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        "verdict": {
+          "description": "The answer to the question the tool exists for. Deterministic: the same result always produces the same words. It always states that correlation is not proof.",
+          "type": "object",
+          "required": [
+            "bottleneck",
+            "confidence",
+            "summary"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "bottleneck": {
+              "description": "Where the latency came from. app means the application tier itself; db or redis names a storage tier; client means the generator or its configuration, not the target; none means nothing stood out; inconclusive means the data cannot say.",
+              "enum": [
+                "app",
+                "db",
+                "redis",
+                "client",
+                "none",
+                "inconclusive"
+              ],
+              "examples": [
+                "db"
+              ]
+            },
+            "confidence": {
+              "description": "How much weight to put on it, from sample sizes, the number of incidents, the strength of the correlation and whether telemetry corroborated it.",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "examples": [
+                "high"
+              ]
+            },
+            "summary": {
+              "description": "One paragraph in plain words, safe to quote verbatim.",
+              "type": "string"
+            },
+            "evidence": {
+              "description": "The specific observations behind the verdict, each independently checkable in this document.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "text"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "description": "What sort of evidence this is.",
+                    "enum": [
+                      "incident",
+                      "correlation",
+                      "telemetry",
+                      "slo",
+                      "validity",
+                      "sample_size"
+                    ]
+                  },
+                  "text": {
+                    "description": "The observation in one sentence.",
+                    "type": "string"
+                  },
+                  "data": {
+                    "description": "The numbers behind it.",
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "caveat": {
+              "description": "The standing limitation of the method: shared timing shows association, not causation.",
+              "type": "string"
+            },
+            "next_steps": {
+              "description": "What to do next, concretely and in priority order.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "strain": {
+          "description": "For ramping runs, the load level at which latency started to degrade: the first run of at least three consecutive sufficient buckets where application p99 exceeded twice the median of the early steady buckets.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "found": {
+              "description": "Whether strain was observed within the range tested.",
+              "type": "boolean"
+            },
+            "at_offset_s": {
+              "description": "When it began.",
+              "type": "number"
+            },
+            "users": {
+              "description": "Concurrent operations in flight at that point.",
+              "type": "number"
+            },
+            "rps": {
+              "description": "Throughput at that point.",
+              "type": "number"
+            },
+            "baseline_p99_ms": {
+              "description": "Early steady median the threshold was built from.",
+              "type": "number"
+            },
+            "message": {
+              "description": "The finding in one sentence, such as 'strain begins at ~180 users (~420 req/s)'.",
+              "type": "string"
+            },
+            "next_window": {
+              "description": "The load range a follow-up capacity search should cover.",
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "incident": {
+      "description": "A contiguous episode of abnormal latency, formed by merging a runner's hot buckets across gaps of one bucket and then overlapping runners with a tolerance of one bucket either side. The class is the finding: it says which tier the episode implicates.",
+      "type": "object",
+      "required": [
+        "id",
+        "class",
+        "start_i",
+        "end_i"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable identifier within the run.",
+          "type": "string",
+          "examples": [
+            "inc-1"
+          ]
+        },
+        "class": {
+          "description": "correlated: the application and at least one storage tier were hot together - the storage tier is a candidate cause. storage_only: a storage tier was hot while the application stayed within budget, a bottleneck that has not yet reached users. app_only: the application was hot while every storage probe was healthy on sufficient data, which points at the application tier. client_limited: the generator's own waiting dominated, so the target is not implicated. unobserved: the application was hot but the storage probes had too little data to say anything.",
+          "enum": [
+            "correlated",
+            "storage_only",
+            "app_only",
+            "client_limited",
+            "unobserved"
+          ],
+          "examples": [
+            "correlated"
+          ]
+        },
+        "start_i": {
+          "description": "First bucket index.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_i": {
+          "description": "Last bucket index, inclusive.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "start_s": {
+          "description": "Start offset in seconds.",
+          "type": "number"
+        },
+        "end_s": {
+          "description": "End offset in seconds.",
+          "type": "number"
+        },
+        "duration_s": {
+          "description": "Length in seconds.",
+          "type": "number"
+        },
+        "runners": {
+          "description": "Every runner's behaviour during the window, hot or not. A runner that stayed healthy is as much a part of the finding as one that did not.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "hot"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "description": "Runner name.",
+                "type": "string"
+              },
+              "hot": {
+                "description": "Whether this runner was hot in the window.",
+                "type": "boolean"
+              },
+              "first_hot_i": {
+                "description": "First bucket at which it went hot, the basis of lead time.",
+                "type": "integer"
+              },
+              "peak_p99_ms": {
+                "description": "Highest service-time p99 in the window.",
+                "type": "number"
+              },
+              "baseline_p99_ms": {
+                "description": "Its steady-state p99 for comparison.",
+                "type": "number"
+              },
+              "severity": {
+                "description": "Peak p99 divided by this runner's threshold.",
+                "type": "number"
+              },
+              "insufficient": {
+                "description": "True when this runner had too little data in the window to judge.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "culprit": {
+          "description": "The best-ranked storage tier inside a correlated incident, by lead time, severity and telemetry corroboration. Null when no tier stands out, and ties are reported rather than broken arbitrarily.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "runner",
+                "score"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "runner": {
+                  "description": "The implicated runner.",
+                  "type": "string"
+                },
+                "score": {
+                  "description": "Ranking score; comparable only within this incident.",
+                  "type": "number"
+                },
+                "lead_buckets": {
+                  "description": "How many buckets it went hot before the application did.",
+                  "type": "integer"
+                },
+                "tied_with": {
+                  "description": "Runners that scored equally. When non-empty the incident does not name a single cause.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "reasons": {
+                  "description": "Why this runner ranked first.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "app_impact": {
+          "description": "What users would have felt during the window.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "peak_p99_ms": {
+              "description": "Worst application p99 in the window.",
+              "type": "number"
+            },
+            "slo_breached": {
+              "description": "Whether the application budget was exceeded.",
+              "type": "boolean"
+            },
+            "affected_ops": {
+              "description": "Application operations that fell inside the window.",
+              "type": "integer"
+            }
+          }
+        },
+        "telemetry": {
+          "description": "Server-side signals that moved in the same window, which is what raises a correlation to corroborated evidence.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "source",
+              "signal"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "description": "Which sampler.",
+                "type": "string",
+                "examples": [
+                  "postgres"
+                ]
+              },
+              "signal": {
+                "description": "Which metric moved.",
+                "type": "string",
+                "examples": [
+                  "locks_waiting"
+                ]
+              },
+              "value": {
+                "description": "Its peak in the window.",
+                "type": "number"
+              },
+              "baseline": {
+                "description": "Its steady value.",
+                "type": "number"
+              },
+              "note": {
+                "description": "What it means in one sentence.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "confidence": {
+          "description": "How much weight this single incident carries.",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        }
+      }
+    },
+    "capacity": {
+      "description": "The result of an auto-ramp search: levels are doubled until one breaks, then the boundary is refined and re-run to confirm it is stable.",
+      "type": "object",
+      "required": [
+        "knob",
+        "levels"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "knob": {
+          "description": "What was raised.",
+          "enum": [
+            "rate",
+            "concurrency"
+          ]
+        },
+        "runner": {
+          "description": "Runner the knob applied to.",
+          "type": "string"
+        },
+        "levels": {
+          "description": "Every level tried, in order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "level",
+              "value",
+              "ok"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "level": {
+                "description": "Index in the order tried.",
+                "type": "integer"
+              },
+              "phase": {
+                "description": "Which part of the search produced it.",
+                "enum": [
+                  "doubling",
+                  "refine",
+                  "confirm"
+                ]
+              },
+              "value": {
+                "description": "Knob value.",
+                "type": "number"
+              },
+              "ok": {
+                "description": "Whether it held every SLO and kept up with the offered load.",
+                "type": "boolean"
+              },
+              "break_reason": {
+                "description": "Why it broke: an SLO breach, or throughput plateauing below 90% of what was offered.",
+                "type": "string"
+              },
+              "offered_rps": {
+                "description": "Load asked for.",
+                "type": "number"
+              },
+              "achieved_rps": {
+                "description": "Load actually completed.",
+                "type": "number"
+              },
+              "mean_concurrency": {
+                "description": "Measured mean in-flight operations, the x value of the USL fit.",
+                "type": "number"
+              },
+              "p50_ms": {
+                "type": "number"
+              },
+              "p95_ms": {
+                "type": "number"
+              },
+              "p99_ms": {
+                "type": "number"
+              },
+              "error_ratio": {
+                "type": "number"
+              },
+              "culprit": {
+                "description": "Which tier broke this level, by the same analysis a whole run uses.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "boundary": {
+          "description": "Where capacity ran out. Confirmed by re-running both sides once: if either flips, a range is reported instead of a point, because a boundary that moves between runs is not a number worth quoting.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "last_ok": {
+              "description": "Highest level that held.",
+              "type": "number"
+            },
+            "first_broken": {
+              "description": "Lowest level that broke.",
+              "type": "number"
+            },
+            "stable": {
+              "description": "Whether confirmation reproduced both sides.",
+              "type": "boolean"
+            },
+            "range": {
+              "description": "When unstable, the range the true boundary lies in.",
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "knee": {
+          "description": "Load at which latency began climbing sharply, when one is identifiable.",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "usl": {
+          "description": "Universal Scalability Law fit over the levels that held: X(N) = lambda*N / (1 + sigma*(N-1) + kappa*N*(N-1)). Sigma is contention, kappa is crosstalk. The fit is hidden when R-squared is below 0.9 or fewer than four levels held, because an unreliable extrapolation is worse than none.",
+          "type": "object",
+          "required": [
+            "fitted"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "fitted": {
+              "description": "Whether a fit is being reported.",
+              "type": "boolean"
+            },
+            "reason": {
+              "description": "Why it is not, when it is not.",
+              "type": "string"
+            },
+            "lambda": {
+              "description": "Ideal throughput per unit of concurrency.",
+              "type": "number"
+            },
+            "sigma": {
+              "description": "Contention coefficient: the serialised share of the work.",
+              "type": "number"
+            },
+            "kappa": {
+              "description": "Crosstalk coefficient: coherency cost, which makes throughput fall back after the peak.",
+              "type": "number"
+            },
+            "r2": {
+              "description": "Coefficient of determination of the fit.",
+              "type": "number"
+            },
+            "peak_n": {
+              "description": "Concurrency of predicted peak throughput, sqrt((1-sigma)/kappa).",
+              "type": "number"
+            },
+            "peak_throughput": {
+              "description": "Throughput predicted at peak_n.",
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  }
+}

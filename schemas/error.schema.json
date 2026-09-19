@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/error.schema.json",
+  "title": "TracePoint error envelope",
+  "description": "The single JSON document written to stdout when a command run with --output json fails, and the body of a failed REST or MCP operation. Exactly one of this or a success document is emitted. Codes are stable: renaming one is a breaking change. The full registry is in docs/ERRORS.md and in the capabilities manifest.",
+  "type": "object",
+  "required": ["error"],
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "Stable, machine-readable identifier. Branch on this, never on the message.",
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "examples": ["CONFIG_UNKNOWN_FIELD", "POLICY_DENIED", "PREFLIGHT_FAILED"]
+        },
+        "message": {
+          "description": "One sentence describing what went wrong, in lower case and without a trailing period.",
+          "type": "string",
+          "examples": ["unknown field \"metod\""]
+        },
+        "path": {
+          "description": "JSON Pointer to the offending location in the input document, when the error is about a document.",
+          "type": "string",
+          "examples": ["/http/requests/0/metod"]
+        },
+        "line": { "description": "1-based line in the source file, when known.", "type": "integer", "minimum": 1, "examples": [12] },
+        "column": { "description": "1-based column in the source file, when known.", "type": "integer", "minimum": 1, "examples": [7] },
+        "hint": {
+          "description": "What to do about it, concretely. Present whenever a fix can be named.",
+          "type": "string",
+          "examples": ["did you mean \"method\"?"]
+        },
+        "docs": {
+          "description": "Documentation anchor explaining this code.",
+          "type": "string",
+          "examples": ["docs/CONFIG.md#http-requests"]
+        },
+        "exit_code": {
+          "description": "Exit code the CLI used or would use for this error: 2 usage, config or policy refusal; 3 preflight or runtime failure; 4 run invalid; 5 wait timed out.",
+          "type": "integer",
+          "enum": [1, 2, 3, 4, 5],
+          "examples": [2]
+        },
+        "retriable": {
+          "description": "Whether repeating the identical call could plausibly succeed. Configuration and policy errors are never retriable.",
+          "type": "boolean",
+          "examples": [false]
+        },
+        "run_id": { "description": "Run this error belongs to, when it happened inside a run.", "type": "string", "examples": ["20260919T210000Z-a1b2c3"] },
+        "details": {
+          "description": "Further structured context, shaped per code. Never contains secrets or response bodies.",
+          "type": "object"
+        },
+        "causes": {
+          "description": "Additional errors of the same shape when several independent problems were found at once, as when a configuration has many invalid fields. The top-level error summarises them.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/nested" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nested": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "message": { "type": "string" },
+        "path": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "hint": { "type": "string" },
+        "docs": { "type": "string" }
+      }
+    }
+  }
+}

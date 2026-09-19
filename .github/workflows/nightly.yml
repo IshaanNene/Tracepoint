@@ -1,0 +1,36 @@
+name: Nightly
+
+# §10: run the known-answer suite five times over to catch flakes. A methodology that
+# only passes sometimes is not a methodology.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  known-answer-repeat:
+    name: known-answer suite x5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.1"
+          cache: true
+      - run: go test -race -count=5 -tags=e2e -timeout=90m ./...
+        env:
+          CGO_ENABLED: "1"
+
+  soak:
+    name: soak (flat heap)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.1"
+          cache: true
+      - run: go test -count=1 -tags=soak -timeout=25m ./...

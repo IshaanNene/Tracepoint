@@ -1,0 +1,22 @@
+# build output
+/bin/
+/dist/
+*.test
+*.out
+
+# run artifacts
+/runs/
+*.ndjson
+*.ndjson.gz
+result.json
+report.html
+
+# local tooling
+.env
+.DS_Store
+/coverage.txt
+/coverage.html
+
+# editor
+.idea/
+*.swp

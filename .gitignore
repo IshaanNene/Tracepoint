@@ -4,12 +4,16 @@
 *.test
 *.out
 
-# run artifacts
+# run artifacts written into the working directory. These are anchored to the repo
+# root on purpose: unanchored, they would silently swallow golden files under
+# testdata/ (a result.json fixture, an events.ndjson snapshot) and the resulting
+# test failures would be very hard to explain.
 /runs/
-*.ndjson
-*.ndjson.gz
-result.json
-report.html
+/result.json
+/report.html
+/digest.json
+/*.ndjson
+/*.ndjson.gz
 
 # local tooling
 .env

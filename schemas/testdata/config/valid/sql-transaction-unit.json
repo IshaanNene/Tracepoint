@@ -22,7 +22,10 @@
           }
         ]
       }
-    ]
+    ],
+    "executor": {
+      "rate": 10
+    }
   },
   "safety": {
     "allow_writes": true

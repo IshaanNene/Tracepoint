@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "http": {
+    "executor": {
+      "type": "arrival-rate",
+      "max_in_flight": 10
+    },
+    "requests": [
+      {
+        "name": "a",
+        "url": "http://127.0.0.1/"
+      }
+    ]
+  }
+}

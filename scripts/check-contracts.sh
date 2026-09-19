@@ -39,6 +39,20 @@ else
   note "ok — absent from all code and contracts; present only in the docs that explain the rename"
 fi
 
+echo "==> stray duplicate files"
+# This tree lives under an iCloud-synced directory, which occasionally leaves
+# "name 2.ext" copies beside a file. A duplicated fixture is picked up by a glob and
+# silently changes what the test suite runs, so it fails the build rather than lurking.
+dupes="$(find . -name '* [0-9].*' -not -path './.git/*' -not -path './bin/*' -not -path './dist/*' 2>/dev/null || true)"
+if [ -n "$dupes" ]; then
+  note "duplicate files found (iCloud copies?):"
+  printf '    %s\n' $dupes
+  note "fix: delete them - find . -name '* [0-9].*' -not -path './.git/*' -delete"
+  fail=1
+else
+  note "ok - no duplicate copies"
+fi
+
 echo "==> JSON Schemas"
 if ! python3 -c 'import jsonschema' >/dev/null 2>&1; then
   if [ "${CI:-}" = "true" ]; then

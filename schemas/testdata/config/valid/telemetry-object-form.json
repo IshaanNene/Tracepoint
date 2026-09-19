@@ -6,7 +6,10 @@
         "name": "a",
         "url": "http://127.0.0.1:8080/"
       }
-    ]
+    ],
+    "executor": {
+      "rate": 5
+    }
   },
   "telemetry": {
     "interval": "1s",

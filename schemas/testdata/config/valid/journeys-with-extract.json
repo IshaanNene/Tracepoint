@@ -42,6 +42,10 @@
         "file": "testdata/users.csv",
         "mode": "unique"
       }
-    ]
+    ],
+    "executor": {
+      "vus": 20,
+      "type": "vus"
+    }
   }
 }

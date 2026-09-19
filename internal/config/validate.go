@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/IshaanNene/Tracepoint/internal/errs"
 )
@@ -464,16 +463,4 @@ func Kind(runner string) string {
 		return "app"
 	}
 	return "storage"
-}
-
-// describeStages renders a profile for a plan or a log line.
-func describeStages(e *Executor) string {
-	if len(e.Stages) == 0 {
-		return "none"
-	}
-	parts := make([]string, 0, len(e.Stages))
-	for _, s := range e.Stages {
-		parts = append(parts, fmt.Sprintf("%g over %s", s.Target, s.Duration))
-	}
-	return strings.Join(parts, " then ")
 }

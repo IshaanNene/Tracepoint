@@ -27,7 +27,7 @@ func load(t *testing.T, doc string, lookup func(string) (string, bool)) (*config
 	if lookup == nil {
 		lookup = noEnv
 	}
-	return config.Load(config.FromBytes("test.yaml", []byte(doc)), config.Options{Lookup: lookup})
+	return config.Load(t.Context(), config.FromBytes("test.yaml", []byte(doc)), config.Options{Lookup: lookup})
 }
 
 func mustLoad(t *testing.T, doc string, lookup func(string) (string, bool)) *config.Config {
@@ -400,11 +400,11 @@ func TestLoadFromFileAndMissingFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(minimal), 0o600); err != nil {
 		t.Fatalf("writing the fixture: %v", err)
 	}
-	if _, err := config.Load(config.FromFile(path), config.Options{Lookup: noEnv}); err != nil {
+	if _, err := config.Load(t.Context(), config.FromFile(path), config.Options{Lookup: noEnv}); err != nil {
 		t.Errorf("loading from a file: %v", err)
 	}
 
-	_, err := config.Load(config.FromFile(filepath.Join(dir, "absent.yaml")), config.Options{Lookup: noEnv})
+	_, err := config.Load(t.Context(), config.FromFile(filepath.Join(dir, "absent.yaml")), config.Options{Lookup: noEnv})
 	var typed *errs.Error
 	if !errors.As(err, &typed) || typed.Code != errs.CodeConfigNotFound {
 		t.Errorf("missing file: got %v, want %s", err, errs.CodeConfigNotFound)
@@ -413,7 +413,7 @@ func TestLoadFromFileAndMissingFile(t *testing.T) {
 
 func TestLoadFromStdin(t *testing.T) {
 	t.Parallel()
-	cfg, err := config.Load(config.FromFile("-"), config.Options{
+	cfg, err := config.Load(t.Context(), config.FromFile("-"), config.Options{
 		Lookup: noEnv,
 		Stdin:  strings.NewReader(minimal),
 	})
@@ -438,7 +438,7 @@ func TestSchemaFixturesRoundTrip(t *testing.T) {
 
 	t.Run("valid", func(t *testing.T) {
 		t.Parallel()
-		files, err := filepath.Glob("../../schemas/testdata/config/valid/*.json")
+		files, err := filepath.Glob("../schemas/testdata/config/valid/*.json")
 		if err != nil || len(files) == 0 {
 			t.Fatalf("no valid fixtures found: %v", err)
 		}
@@ -453,7 +453,7 @@ func TestSchemaFixturesRoundTrip(t *testing.T) {
 				// These fixtures describe shapes, not runnable tests: several use
 				// executor shorthands whose stage sums cannot match an unset duration,
 				// so defaults are applied but semantics are checked separately below.
-				if _, err := config.Load(config.FromBytes(name, data), config.Options{Lookup: lookup}); err != nil {
+				if _, err := config.Load(t.Context(), config.FromBytes(name, data), config.Options{Lookup: lookup}); err != nil {
 					t.Errorf("the schema accepts this fixture but the loader rejects it:\n%v", err)
 				}
 			})
@@ -462,7 +462,7 @@ func TestSchemaFixturesRoundTrip(t *testing.T) {
 
 	t.Run("invalid", func(t *testing.T) {
 		t.Parallel()
-		files, err := filepath.Glob("../../schemas/testdata/config/invalid/*.json")
+		files, err := filepath.Glob("../schemas/testdata/config/invalid/*.json")
 		if err != nil || len(files) == 0 {
 			t.Fatalf("no invalid fixtures found: %v", err)
 		}
@@ -474,7 +474,7 @@ func TestSchemaFixturesRoundTrip(t *testing.T) {
 				if err != nil {
 					t.Fatalf("reading: %v", err)
 				}
-				if _, err := config.Load(config.FromBytes(name, data), config.Options{Lookup: lookup}); err == nil {
+				if _, err := config.Load(t.Context(), config.FromBytes(name, data), config.Options{Lookup: lookup}); err == nil {
 					t.Error("the schema rejects this fixture but the loader accepts it")
 				}
 			})

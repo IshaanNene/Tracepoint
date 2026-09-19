@@ -50,7 +50,7 @@ These come from §2 of the spec. Breaking one is a bug, not a style preference.
 
 - **`result.json` is the system of record.** Every renderer — CLI, HTML, Markdown,
   JUnit, digest — is a pure function of it. If a number is not in the schema, it
-  cannot appear anywhere. Add the field to `schemas/result.schema.json` first.
+  cannot appear anywhere. Add the field to `internal/schemas/result.schema.json` first.
 - **Never average percentiles.** Merge sketches and read the merged result.
 - **Measure from the intended send time**, not from dispatch. `response_time` is what
   SLOs are judged on; `service_time` is what tier attribution uses; `client_wait` is
@@ -64,7 +64,7 @@ These come from §2 of the spec. Breaking one is a bug, not a style preference.
 - **The hot path allocates nothing** and takes no global lock: per-worker shards,
   merged on read. It is benchmarked.
 - **Contract-first.** Config, policy, result, digest, events and errors each have a
-  JSON Schema in `schemas/`. Every emitted document is validated against its schema in
+  JSON Schema in `internal/schemas/`. Every emitted document is validated against its schema in
   tests. Changing a schema means changing `docs/PROGRESS.md` and, if it is not purely
   additive, a version bump — see [ADR-004](docs/adr/004-result-system-of-record.md).
 - **Math-heavy packages are written test-first**: `schedule`, `metrics`, `analysis`,

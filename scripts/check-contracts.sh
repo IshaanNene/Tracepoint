@@ -66,10 +66,10 @@ import json, os, sys
 from jsonschema import Draft202012Validator as V
 
 ok = True
-for fn in sorted(os.listdir('schemas')):
+for fn in sorted(os.listdir('internal/schemas')):
     if not fn.endswith('.json'):
         continue
-    path = os.path.join('schemas', fn)
+    path = os.path.join('internal/schemas', fn)
     try:
         V.check_schema(json.load(open(path)))
         print(f"  ok — {path}")
@@ -77,9 +77,9 @@ for fn in sorted(os.listdir('schemas')):
         print(f"  FAIL — {path}: {e}")
         ok = False
 
-root = 'schemas/testdata/config'
+root = 'internal/schemas/testdata/config'
 if os.path.isdir(root):
-    v = V(json.load(open('schemas/config.schema.json')))
+    v = V(json.load(open('internal/schemas/config.schema.json')))
     counts = {}
     for sub, want_valid in (('valid', True), ('invalid', False)):
         d = os.path.join(root, sub)

@@ -51,6 +51,8 @@ type Runner struct {
 	labels   []metrics.LabelID
 	timeout  time.Duration
 	insecure bool
+
+	phases *phaseStats
 }
 
 // request is a compiled request: everything resolved once, at load time, so the hot
@@ -78,14 +80,18 @@ func New(cfg *config.HTTP, runDuration, defaultTimeout time.Duration, deps runne
 			WithHint("use `requests:` for now; journeys land in phase 6")
 	}
 
-	r := &Runner{cfg: cfg, deps: deps, timeout: defaultTimeout}
+	stats, err := newPhaseStats()
+	if err != nil {
+		return nil, err
+	}
+	r := &Runner{cfg: cfg, deps: deps, timeout: defaultTimeout, phases: stats}
 
 	weights := make([]float64, 0, len(cfg.Requests))
 	for i := range cfg.Requests {
 		src := &cfg.Requests[i]
-		compiled, err := r.compile(src)
-		if err != nil {
-			return nil, err
+		compiled, compileErr := r.compile(src)
+		if compileErr != nil {
+			return nil, compileErr
 		}
 		r.requests = append(r.requests, compiled)
 		r.labels = append(r.labels, deps.Collector.LabelID(src.Name))
@@ -258,6 +264,10 @@ func buildTLS(c *config.TLS) (*tls.Config, error) {
 	return out, nil
 }
 
+// SetStart fixes the run's monotonic origin. The engine calls it once, after preflight
+// and before any load, because every offset a runner records is measured from it.
+func (r *Runner) SetStart(t time.Time) { r.deps.Start = t }
+
 // Name identifies the runner.
 func (r *Runner) Name() string { return Name }
 
@@ -322,7 +332,7 @@ func (r *Runner) preflight(ctx context.Context, req *request) error {
 			WithHint("check that the target is running and reachable before starting a load test")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	discard(resp.Body)
 
 	// A preflight response is reported but not judged: a 404 here is worth knowing
 	// about, yet a target legitimately returning 4xx to an unauthenticated probe is
@@ -385,6 +395,10 @@ func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recor
 	_ = resp.Body.Close()
 	o.BytesIn = n
 	o.End = r.deps.Elapsed()
+	// Where the time went inside the request. Aggregated for the whole run rather than
+	// per bucket: six more sketches per (label, bucket) would cost far more memory than
+	// the breakdown is worth, and it is read as a whole-run figure anyway.
+	r.phases.observe(tr.phases(o.End))
 
 	switch {
 	case readErr != nil:
@@ -430,7 +444,7 @@ func drain(body io.Reader, expect *config.Expect) (int64, error) {
 		total += int64(n)
 		if limit > 0 && total > limit {
 			// Keep draining so the connection stays reusable, but remember the breach.
-			_, _ = io.Copy(io.Discard, body)
+			discard(body)
 			return total, nil
 		}
 		if err != nil {
@@ -440,6 +454,16 @@ func drain(body io.Reader, expect *config.Expect) (int64, error) {
 			return total, err
 		}
 	}
+}
+
+// discard reads the rest of a body and throws it away.
+//
+// The error is deliberately not returned. The only reason to keep reading at this
+// point is so the connection can go back to the pool; if the read fails the
+// connection is discarded instead, which is the same outcome by another route, and the
+// operation's own classification has already been decided.
+func discard(r io.Reader) {
+	_, _ = io.Copy(io.Discard, r) //nolint:errcheck // see above: nothing to do with it
 }
 
 // classifyResponse decides whether a response counts as a success.
@@ -530,6 +554,15 @@ func classifyTransportError(ctx context.Context, err error) metrics.Class {
 	}
 	return metrics.ClassOther
 }
+
+// PhaseBreakdown reports where request time went, aggregated over the run. It is what
+// distinguishes a slow service from an undersized connection pool.
+func (r *Runner) PhaseBreakdown() PhaseQuantiles { return r.phases.quantiles() }
+
+// ConnectionReuse is the share of requests served on a reused connection. A low value
+// with keep-alive on usually means the idle pool is smaller than the concurrency, and
+// the run is measuring connection setup.
+func (r *Runner) ConnectionReuse() float64 { return r.phases.reuseRatio() }
 
 // Close releases idle connections.
 func (r *Runner) Close() error {

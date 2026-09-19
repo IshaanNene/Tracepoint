@@ -25,7 +25,7 @@ These are from §2 of the spec, and breaking one is a bug rather than a style
 disagreement:
 
 - **`result.json` is the system of record.** Every renderer is a pure function of it.
-  A number that is not in `schemas/result.schema.json` cannot appear in any output, so
+  A number that is not in `internal/schemas/result.schema.json` cannot appear in any output, so
   a new statistic starts as a schema change.
 - **Never average percentiles.** Merge sketches and read the merged result.
 - **Nothing reads `time.Now`** — take a `clock.Clock`. Nothing reads a global RNG —

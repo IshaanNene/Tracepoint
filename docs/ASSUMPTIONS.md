@@ -29,7 +29,7 @@ None of these block phases 1–3. They are listed in the order they start to mat
 | # | Question | Default being applied | First phase it binds |
 | --- | --- | --- | --- |
 | Q1 | Is `tracepoint` the final name (A1)? | Yes, per ADR-010 | 1 — it enters the module path and every contract |
-| Q2 | CI matrix Go versions — pin to the one latest stable, or also test the previous minor? | Latest stable only, matching §2; `go.mod` says `go 1.26.1` | 1 |
+| Q2 | CI matrix Go versions — pin to the one latest stable, or also test the previous minor? | Latest stable only, matching §2. `go.mod` pins `go 1.26.6`, which is the first release with no `govulncheck` findings against the standard library for the packages this tool calls | 1 |
 | Q3 | Should `runs/` default somewhere outside the working directory (e.g. an XDG state directory) so running in a repo does not litter it? | `./runs/` per §6.4, `.gitignore`d | 4 — the run store |
 | Q4 | Which chart library is vendored into the HTML report? It must be small, offline, permissively licensed, and work under a CSP with no `unsafe-inline` | To be chosen in phase 5 with a dependency-style justification appended to ADR-007 | 5 |
 | Q5 | Does `compare` accept results from different tool versions with the same schema major? | Yes, with a warning listing the version difference | 7 |
@@ -42,6 +42,6 @@ None of these block phases 1–3. They are listed in the order they start to mat
   `dist/`), coverage files and run directories are `.gitignore`d, and the Makefile
   builds into `bin/` rather than the package directories, which keeps synced copies out
   of the tree. Worth remembering if a stale duplicate file ever appears.
-- `go1.26.1` and `golangci-lint 2.12.2` are installed. `govulncheck` and `goreleaser`
-  are not yet; `make check` reports the exact install command rather than skipping the
+- `go1.26.6` (auto-downloaded via the `go` directive) and `golangci-lint 2.12.2` are
+  installed, as is `govulncheck`. `goreleaser` is not yet; `make check` reports the exact install command rather than skipping the
   step silently.

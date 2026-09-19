@@ -17,6 +17,16 @@ before it is removed in the next major.
 
 ### Added
 
+- Phase 1: the engine. A coordinated-omission-correct arrival scheduler, relative-error
+  sketches with bucket sealing, the open-model executor, an HTTP runner with httptrace
+  phase timing, strict configuration loading, `result.json` v1 with run-validity and
+  SLO evaluation, aligned terminal tables, and the `run`, `validate`, `schema` and
+  `version` commands with the `--output json` contract and the documented exit codes.
 - Phase 0: the specification stored verbatim, architecture, ten ADRs, the six JSON
   Schemas with fixtures, the error and finding registry, the package skeleton, the
   build gate and CI.
+
+### Changed
+
+- The minimum Go toolchain is 1.26.6, the first release with no `govulncheck` findings
+  against the standard-library packages this tool calls.

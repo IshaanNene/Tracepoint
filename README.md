@@ -37,7 +37,7 @@ and decisions are written; the engine is not. Nothing is installable yet.
 | The specification, stored verbatim | [`docs/SPEC.md`](docs/SPEC.md) |
 | Architecture and the package map | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Ten architecture decision records | [`docs/adr/`](docs/adr/) |
-| JSON Schemas: config, policy, result, digest, events, error | [`schemas/`](schemas/) |
+| JSON Schemas: config, policy, result, digest, events, error | [`internal/schemas/`](internal/schemas/) |
 | Error and finding codes | [`docs/ERRORS.md`](docs/ERRORS.md) |
 | Assumptions and open questions | [`docs/ASSUMPTIONS.md`](docs/ASSUMPTIONS.md) |
 | What is built, and what deviates | [`docs/PROGRESS.md`](docs/PROGRESS.md) |
@@ -76,7 +76,7 @@ make check      # the gate: format, vet, lint, race tests, contracts, vulnerabil
 make help       # every target
 ```
 
-Requires Go 1.26.1 or later. Release builds are `CGO_ENABLED=0` and cross-compile to
+Requires Go 1.26.6 or later. Release builds are `CGO_ENABLED=0` and cross-compile to
 linux, darwin and windows on amd64 and arm64.
 
 ## Contributing

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -51,9 +52,13 @@ var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
 // parsed document, so their positions are still known. Defaults are applied only
 // after the document has been accepted, so an error always describes what was
 // written rather than what it would have become.
-func Load(src Source, opts Options) (*Config, error) {
+func Load(ctx context.Context, src Source, opts Options) (*Config, error) {
 	if opts.Lookup == nil {
 		opts.Lookup = os.LookupEnv
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, errs.Wrap(errs.CodeIOReadFailed, err, "loading the configuration")
 	}
 
 	raw, err := read(src, opts.Stdin)

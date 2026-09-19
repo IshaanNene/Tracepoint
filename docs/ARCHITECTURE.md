@@ -81,6 +81,9 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `cmd/tracepoint` | `main`: wiring only — build the dependency graph, hand it to the command tree, map the error to an exit code |
 | `tracepoint`, `options.go` | Public, semver-stable Go API (ADR-009) |
 | `tracepointtest` | `Run(t, cfg)` — fails a Go test on an SLO breach or an invalid run |
+| `internal/errs` | Coded errors and the JSON envelope. Sits below everything, because every package constructs one |
+| `internal/engine` | Orchestration: owns the single monotonic start instant every runner and sampler shares |
+| `internal/cli` | The cobra command tree. An adapter: it parses flags, calls the core and maps outcomes to exit codes |
 | `internal/clock` | `Clock` interface, real and fake. Nothing else reads `time.Now` |
 | `internal/schedule` | Rate stages, `Λ` and `Λ⁻¹`, uniform and Poisson arrivals (ADR-001) |
 | `internal/executor` | Open (arrival-rate) and closed (vus) models (ADR-003) |
@@ -98,7 +101,7 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `internal/adapters/{mcp,rest}` | Protocol plumbing, no logic |
 | `internal/render/{cli,html,markdown,junit}` | Pure functions of `result.json` |
 | `internal/detect` | Project detection and OpenAPI import |
-| `internal/schemas` | The JSON Schemas, embedded so the binary ships the contract it honours |
+| `internal/schemas` | The JSON Schemas themselves. They live inside the package because `go:embed` cannot reach outside it, which is what guarantees the binary ships the contract it enforces |
 | `internal/buildinfo` | Version stamped at link time |
 | `tools/faultbox` | Demo app with fault injection, for the known-answer suite |
 

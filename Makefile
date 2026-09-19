@@ -56,7 +56,10 @@ test: ## Unit tests with -race (cgo on)
 
 .PHONY: cover
 cover: ## Unit tests with coverage + gate check
-	CGO_ENABLED=1 go test -race -count=1 -covermode=atomic -coverprofile=coverage.txt $(PKG)
+	# -coverpkg spans the module because the end-to-end tests drive the engine, the
+	# result builder and the renderers through the command tree; without it those
+	# packages report zero despite being exercised on every run.
+	CGO_ENABLED=1 go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.txt $(PKG)
 	@go tool cover -func=coverage.txt | tail -n 1
 
 .PHONY: integration

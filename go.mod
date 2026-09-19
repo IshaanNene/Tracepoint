@@ -1,12 +1,19 @@
 module github.com/IshaanNene/Tracepoint
 
-go 1.26.1
+go 1.26.6
 
 require (
 	github.com/DataDog/sketches-go v1.4.8
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	github.com/spf13/cobra v1.10.2
 	go.uber.org/goleak v1.3.0
 	go.yaml.in/yaml/v3 v3.0.5
 	pgregory.net/rapid v1.3.0
 )
 
-require google.golang.org/protobuf v1.36.12 // indirect
+require (
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
+	golang.org/x/text v0.14.0 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
+)

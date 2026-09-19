@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.26.1"
+  GO_VERSION: "1.26.6"
 
 jobs:
   lint:
@@ -110,7 +110,10 @@ jobs:
           if ! find . -name '*_test.go' -not -path './.git/*' | grep -q .; then
             echo "no test files yet — coverage gates activate in phase 1"; exit 0
           fi
-          CGO_ENABLED=1 go test -race -count=1 -covermode=atomic -coverprofile=coverage.txt ./...
+          # -coverpkg spans the module: the end-to-end tests drive the engine, the
+          # result builder and the renderers through the command tree, and without it
+          # those packages report zero despite being exercised on every run.
+          CGO_ENABLED=1 go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.txt ./...
           total="$(go tool cover -func=coverage.txt | awk '/^total:/ {gsub(/%/,"",$3); print $3}')"
           echo "total coverage: ${total}%"
           awk -v t="$total" 'BEGIN { exit !(t+0 >= 70) }' \

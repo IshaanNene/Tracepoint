@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "redis": {
+    "addr": "a",
+    "addrs": [
+      "b"
+    ],
+    "commands": [
+      {
+        "name": "c",
+        "cmd": [
+          "GET",
+          "k"
+        ]
+      }
+    ]
+  }
+}

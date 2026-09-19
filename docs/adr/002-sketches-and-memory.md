@@ -107,3 +107,45 @@ percentile's name.
   top of the result.
 - **Reservoir sampling.** Bounded memory, but it throws away the tail, which is the
   only part of the distribution this tool cares about.
+
+## Verification performed at implementation time (phase 1)
+
+The memory and allocation claims above were measured against `DataDog/sketches-go
+v1.4.8` before the package was built around it, using a logarithmic mapping at 1%
+relative accuracy over dense stores.
+
+| Claim | Measured |
+| --- | --- |
+| The record path allocates nothing in steady state | `Add` into a warmed sketch: **0 B/op, 0 allocs/op**, 26.7 ns/op |
+| Merging is cheap enough to do per sealed bucket | `MergeWith` of two 100k-observation sketches: **0 allocs/op**, 301 ns/op |
+| A serialised sketch is small enough to embed in `result.json` | 200,000 observations spanning 50µs–10s encode to **971 bytes** — below the 1 KB pessimistic figure used in the budget above |
+| Serialisation is lossless | `Encode` / `DecodeDDSketch` round-trips p50, p99 and p99.9 exactly, and preserves the count |
+
+`Encode`/`DecodeDDSketch` is the library's own compact binary format, base64-encoded
+into `result.json`. It is not protobuf — but note that `sketches-go` imports its own
+protobuf bindings from the same package, so `google.golang.org/protobuf` arrives as an
+indirect dependency whether or not those methods are called. Choosing the binary codec
+therefore buys a smaller, faster payload rather than one fewer module; ADR-007 records
+protobuf explicitly rather than leaving it unexplained in `go.mod`.
+
+### Amendment: how the hot path avoids a global lock
+
+The spec says "per-worker shards merged on read". Sharding the *sketches* by worker
+turned out to be the wrong trade: it multiplies per-bucket state by the shard count,
+and the memory budget above assumes `runners x labels x open_window` sketches, not
+`x shards` as well. At 8 shards, 50 labels and an 11-bucket open window that is 13,200
+live sketches holding a handful of samples each — heavyweight structures almost all of
+which are nearly empty.
+
+What is actually implemented:
+
+- **Counters** — operation count, per-class error counts, bytes, status codes, offered
+  and dropped arrivals — are sharded per worker and updated atomically. No lock at all.
+- **Sketches** are held once per `(label, open bucket)` and guarded by that slot's own
+  mutex. There is no global lock, and in steady state traffic spreads across one mutex
+  per label.
+
+The critical section is a single `Add`, measured above at 27ns. At 2,000 operations a
+second that is a duty cycle of roughly 0.005%; contention is not a realistic concern at
+any rate this tool can generate, and `BenchmarkRecordParallel` measures it rather than
+assuming. The memory figures in the budget above therefore hold as written.

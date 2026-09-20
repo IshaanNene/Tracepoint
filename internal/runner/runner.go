@@ -34,6 +34,15 @@ type Runner interface {
 	// known before the run starts so the record path never hashes a string.
 	Labels() []string
 
+	// SetStart fixes the run's monotonic origin, once, after preflight and before any
+	// load. Every offset a runner records is measured from it.
+	//
+	// It is part of the interface rather than an optional extra on purpose: when it
+	// was optional, two of three runners silently measured from the zero time and
+	// reported latencies of several thousand years. A step that every implementation
+	// must take belongs where the compiler checks for it.
+	SetStart(t time.Time)
+
 	// Prepare opens pools, resolves targets and runs preflight. It is called before
 	// any load and may take as long as it needs; failures here cost nothing but time,
 	// which is the whole point of doing them first.

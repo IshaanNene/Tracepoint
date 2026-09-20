@@ -126,6 +126,8 @@ func evaluateValidity(r *Result, cfg *config.Config) Validity {
 		})
 	}
 
+	v.Findings = dedupeFindings(v.Findings)
+
 	// Severity decides the state: any error invalidates, any warning degrades.
 	for _, f := range v.Findings {
 		switch f.Severity {
@@ -138,6 +140,25 @@ func evaluateValidity(r *Result, cfg *config.Config) Validity {
 	}
 	_ = cfg
 	return v
+}
+
+// dedupeFindings collapses findings that say the same thing.
+//
+// A caveat about the run as a whole - three runners all pointing at loopback, say - is
+// discovered once per runner but is one fact. Repeating it makes a report look like it
+// found three problems.
+func dedupeFindings(in []Finding) []Finding {
+	seen := make(map[string]bool, len(in))
+	out := in[:0]
+	for _, f := range in {
+		key := f.Code + "\x00" + f.Message
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 // serviceTimeRose reports whether the target slowed over the measured window.

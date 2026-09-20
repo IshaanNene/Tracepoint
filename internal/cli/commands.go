@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/IshaanNene/Tracepoint/internal/config"
 	"github.com/IshaanNene/Tracepoint/internal/engine"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
+	"github.com/IshaanNene/Tracepoint/internal/policy"
 	clirender "github.com/IshaanNene/Tracepoint/internal/render/cli"
 	"github.com/IshaanNene/Tracepoint/internal/result"
 	"github.com/IshaanNene/Tracepoint/internal/schemas"
@@ -25,6 +27,9 @@ func newRunCmd(env Env, g *globals) *cobra.Command {
 	var (
 		configPath   string
 		resultPath   string
+		policyPath   string
+		overrides    []string
+		dryRun       bool
 		allowInvalid bool
 		verbose      bool
 		seed         uint64
@@ -46,7 +51,8 @@ because the load generator rather than the target set the pace.`),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			seedSet = cmd.Flags().Changed("seed")
 			return runRun(cmd.Context(), env, g, runOptions{
-				configPath: configPath, resultPath: resultPath,
+				configPath: configPath, resultPath: resultPath, policyPath: policyPath,
+				overrides: overrides, dryRun: dryRun,
 				allowInvalid: allowInvalid, verbose: verbose,
 				seed: seed, seedSet: seedSet,
 			})
@@ -58,6 +64,9 @@ because the load generator rather than the target set the pace.`),
 	f.BoolVar(&allowInvalid, "allow-invalid", false, "exit 0 for a run the generator bottlenecked, instead of 4")
 	f.BoolVarP(&verbose, "verbose", "v", false, "include the per-label table")
 	f.Uint64Var(&seed, "seed", 0, "override the configured seed; the seed actually used is always recorded in the result")
+	f.StringVar(&policyPath, "policy", "", "safety policy file; defaults to $TRACEPOINT_POLICY, then to an envelope that refuses public targets and grants no writes")
+	f.StringArrayVar(&overrides, "set", nil, "override a configuration value, as path=value. Repeatable. List items are addressable by name, as in db.queries[by-id].weight=5")
+	f.BoolVar(&dryRun, "dry-run", false, "describe what would run - load, targets, effective safety envelope - and contact nothing")
 	return cmd
 }
 
@@ -84,6 +93,9 @@ func watchForSecondSignal(ctx context.Context, finished <-chan struct{}, env Env
 type runOptions struct {
 	configPath   string
 	resultPath   string
+	policyPath   string
+	overrides    []string
+	dryRun       bool
 	allowInvalid bool
 	verbose      bool
 	seed         uint64
@@ -91,16 +103,33 @@ type runOptions struct {
 }
 
 func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
-	cfg, err := config.Load(ctx, config.FromFile(opts.configPath), config.Options{
-		Lookup: env.Lookup, Stdin: env.Stdin,
-	})
+	cfg, effective, warnings, err := prepare(ctx, env, opts.configPath, opts.policyPath, opts.overrides)
 	if err != nil {
 		return err
 	}
 
+	// A dry run answers "what would this do" without doing any of it, which is what
+	// makes it safe to point at a configuration nobody has read yet.
+	if opts.dryRun {
+		plan := BuildPlan(cfg, effective, warnings, opts.configPath, opts.overrides)
+		if g.json() {
+			return writeJSON(env.Stdout, plan)
+		}
+		_, writeErr := io.WriteString(env.Stdout, RenderPlan(plan))
+		if writeErr != nil {
+			return errs.Wrap(errs.CodeIOWriteFailed, writeErr, "writing the plan")
+		}
+		return nil
+	}
+
 	log := g.logger(env)
+	for _, w := range warnings {
+		log.Warn(w.Message, "code", w.Code, "fix", w.Fix)
+	}
 	eopts := engine.Options{
 		Config: cfg, SourcePath: opts.configPath, Clock: nil, Logger: log,
+		Overrides: opts.overrides, Policy: effective,
+		Warnings: planWarnings(warnings),
 	}
 	if opts.seedSet {
 		eopts.Seed = &opts.seed
@@ -156,6 +185,53 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 	return outcomeExit(res, opts.allowInvalid)
 }
 
+// prepare loads the configuration and the policy, applies overrides, and resolves the
+// envelope the run will execute under.
+//
+// Everything here happens before anything is contacted, so a refusal costs nothing and
+// a typo is reported in a second.
+func prepare(ctx context.Context, env Env, configPath, policyPath string, overrides []string) (*config.Config, policy.Policy, []config.Warning, error) {
+	granted, err := policy.Load(policyPath, env.Lookup)
+	if err != nil {
+		return nil, policy.Policy{}, nil, err
+	}
+	// Overrides are applied to the document as written, before defaults are derived.
+	// They sit at the top of the precedence chain, and a default computed from a value
+	// an override is about to change would contradict it: raising run.duration has to
+	// lengthen the stage the `rate:` shorthand produces, not leave it at the old value.
+	cfg, err := config.Load(ctx, config.FromFile(configPath), config.Options{
+		Lookup: env.Lookup, Stdin: env.Stdin, Raw: len(overrides) > 0,
+	})
+	if err != nil {
+		return nil, policy.Policy{}, nil, err
+	}
+	if len(overrides) > 0 {
+		if setErr := cfg.ApplySet(overrides); setErr != nil {
+			return nil, policy.Policy{}, nil, setErr
+		}
+		// An override can break a configuration as easily as fix one, so the whole
+		// thing is defaulted and validated afresh.
+		if finalErr := cfg.Finalise(); finalErr != nil {
+			return nil, policy.Policy{}, nil, finalErr
+		}
+	}
+	effective, warnings, err := cfg.ApplyPolicy(granted)
+	if err != nil {
+		return nil, policy.Policy{}, nil, err
+	}
+	return cfg, effective, warnings, nil
+}
+
+func planWarnings(in []config.Warning) []result.Finding {
+	out := make([]result.Finding, 0, len(in))
+	for _, w := range in {
+		out = append(out, result.Finding{
+			Code: w.Code, Severity: result.SeverityWarn, Message: w.Message, Fix: w.Fix,
+		})
+	}
+	return out
+}
+
 // outcomeExit turns a completed run into an exit code.
 //
 // A run that finished is not necessarily a run that passed, and the two failures mean
@@ -207,7 +283,11 @@ func progressPrinter(env Env, g *globals) func(engine.Progress) {
 }
 
 func newValidateCmd(env Env, g *globals) *cobra.Command {
-	var configPath string
+	var (
+		configPath string
+		policyPath string
+		overrides  []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "validate",
@@ -221,9 +301,7 @@ run against a production configuration.`),
   tracepoint validate -c tracepoint.yaml --output json`),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := config.Load(cmd.Context(), config.FromFile(configPath), config.Options{
-				Lookup: env.Lookup, Stdin: env.Stdin,
-			})
+			cfg, _, warnings, err := prepare(cmd.Context(), env, configPath, policyPath, overrides)
 			if err != nil {
 				return err
 			}
@@ -233,15 +311,26 @@ run against a production configuration.`),
 					"path":      configPath,
 					"runners":   cfg.Runners(),
 					"duration":  cfg.Run.Duration.String(),
-					"effective": cfg,
+					"targets":   cfg.Targets(),
+					"warnings":  warnings,
+					"effective": cfg.Redacted(),
 				})
 			}
 			fmt.Fprintf(env.Stdout, "%s is valid: %s over %s\n",
 				configPath, strings.Join(cfg.Runners(), ", "), cfg.Run.Duration)
+			for _, w := range warnings {
+				fmt.Fprintf(env.Stdout, "  ! %s\n", w.Message)
+				if w.Fix != "" {
+					fmt.Fprintf(env.Stdout, "    %s\n", w.Fix)
+				}
+			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&configPath, "config", "c", "tracepoint.yaml", "configuration file, or - to read standard input")
+	f := cmd.Flags()
+	f.StringVarP(&configPath, "config", "c", "tracepoint.yaml", "configuration file, or - to read standard input")
+	f.StringVar(&policyPath, "policy", "", "safety policy file to validate against")
+	f.StringArrayVar(&overrides, "set", nil, "override a configuration value, as path=value")
 	return cmd
 }
 

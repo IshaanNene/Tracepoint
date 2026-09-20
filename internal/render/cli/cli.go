@@ -183,9 +183,12 @@ func writeRunners(b *strings.Builder, p painter, r *result.Result) {
 			continue
 		}
 		if share := rn.Summary.ClientWait.P99 / rn.Summary.Response.P99; share > 0.2 {
+			// Quoting the service figure alongside is the point: it is the number that
+			// describes the target, and the one tier attribution uses. Without it a
+			// reader sees a large p99 and blames the wrong thing.
 			fmt.Fprintf(b, "  %s\n", p.paint(yellow, fmt.Sprintf(
-				"%.0f%% of %s p99 was spent waiting inside the generator (%s of %s)",
-				share*100, rn.Name, humanMS(rn.Summary.ClientWait.P99), humanMS(rn.Summary.Response.P99))))
+				"%.0f%% of %s p99 (%s) was waiting inside the generator; %s itself took %s",
+				share*100, rn.Name, humanMS(rn.Summary.Response.P99), rn.Name, humanMS(rn.Summary.Service.P99))))
 		}
 	}
 

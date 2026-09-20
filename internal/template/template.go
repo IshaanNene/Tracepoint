@@ -61,12 +61,15 @@ const (
 	kindVar          // {{name}} - extracted by an earlier step
 	kindFeeder       // {{feeder.column}}
 	kindGen          // a generator call
+	kindValue        // an already-typed value, wrapped by Literal
 )
 
 // part is one compiled piece of a template.
 type part struct {
 	kind    kind
 	literal string
+	// value holds an already-typed literal, for kindValue.
+	value any
 	// name is the variable name, the feeder name, or the function name.
 	name   string
 	column string   // feeder column
@@ -285,7 +288,8 @@ func truncate(s string) string {
 func (t *Template) Source() string { return t.source }
 
 // IsStatic reports whether the template has no tokens at all, so it can be used
-// without a rendering context.
+// without a rendering context. A wrapped literal value is not static: it renders to
+// itself but carries a type, and Static returns only text.
 func (t *Template) IsStatic() bool {
 	for _, p := range t.parts {
 		if p.kind != kindLiteral {
@@ -333,4 +337,17 @@ func (t *Template) namesOf(k kind) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Literal wraps an already-typed value as a template that renders to itself.
+//
+// A bind argument written as a number in the configuration is already a value, not a
+// string to be parsed. Wrapping it keeps one render path for every argument instead of
+// making each caller branch on whether templating applies.
+func Literal(v any) *Template {
+	return &Template{
+		source: fmt.Sprint(v),
+		parts:  []part{{kind: kindValue, value: v}},
+		solo:   &part{kind: kindValue, value: v},
+	}
 }

@@ -17,6 +17,10 @@ before it is removed in the next major.
 
 ### Added
 
+- Phase 2: storage and safety. SQL and Redis runners that probe the tier while they
+  load it, the template mini-language, `--set` overrides, the policy envelope with
+  write and destructive-statement guards, secret redaction, the abort guard, target
+  resolution and classification at preflight, `tracepoint doctor`, and `--dry-run`.
 - Phase 1: the engine. A coordinated-omission-correct arrival scheduler, relative-error
   sketches with bucket sealing, the open-model executor, an HTTP runner with httptrace
   phase timing, strict configuration loading, `result.json` v1 with run-validity and

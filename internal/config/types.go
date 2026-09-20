@@ -9,6 +9,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -248,10 +249,82 @@ type Pool struct {
 	ConnMaxIdleTime *Duration `yaml:"conn_max_idle_time" json:"conn_max_idle_time,omitempty"`
 }
 
+// Arg is one bind argument.
+//
+// Written as a plain scalar in the ordinary case, or as {value: ..., secret: true}
+// when it carries something that must never appear in a report. §8 requires that
+// marker: a bind argument can hold an API key just as easily as a header can, and an
+// artifact gets attached to a ticket long after anyone remembers what was in it.
+type Arg struct {
+	Value  any
+	Secret bool
+}
+
+// UnmarshalYAML accepts both forms.
+func (a *Arg) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.MappingNode {
+		// Only a mapping that actually carries a `value` key is the object form; a
+		// mapping without one is a JSON argument being passed through.
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value != "value" {
+				continue
+			}
+			var wrapper struct {
+				Value  any  `yaml:"value"`
+				Secret bool `yaml:"secret"`
+			}
+			if err := n.Decode(&wrapper); err != nil {
+				return fmt.Errorf("decoding a bind argument: %w", err)
+			}
+			a.Value, a.Secret = wrapper.Value, wrapper.Secret
+			return nil
+		}
+	}
+	var v any
+	if err := n.Decode(&v); err != nil {
+		return fmt.Errorf("decoding a bind argument: %w", err)
+	}
+	a.Value = v
+	return nil
+}
+
+// MarshalYAML writes a plain argument back as a scalar and a secret one as the object
+// form, so a round trip through the effective configuration preserves the marker.
+func (a Arg) MarshalYAML() (any, error) {
+	if a.Secret {
+		return map[string]any{"value": a.Value, "secret": true}, nil
+	}
+	return a.Value, nil
+}
+
+// MarshalJSON mirrors MarshalYAML.
+func (a Arg) MarshalJSON() ([]byte, error) {
+	if a.Secret {
+		b, err := json.Marshal(map[string]any{"value": a.Value, "secret": true})
+		if err != nil {
+			return nil, fmt.Errorf("encoding a secret bind argument: %w", err)
+		}
+		return b, nil
+	}
+	b, err := json.Marshal(a.Value)
+	if err != nil {
+		return nil, fmt.Errorf("encoding a bind argument: %w", err)
+	}
+	return b, nil
+}
+
+// String renders the argument for a plan or a log line, never revealing a secret.
+func (a Arg) String() string {
+	if a.Secret {
+		return Redacted
+	}
+	return fmt.Sprint(a.Value)
+}
+
 // TxStatement is one statement inside a transaction unit.
 type TxStatement struct {
 	SQL  string `yaml:"sql" json:"sql"`
-	Args []any  `yaml:"args" json:"args,omitempty"`
+	Args []Arg  `yaml:"args" json:"args,omitempty"`
 }
 
 // Query is one weighted SQL statement or transaction unit.
@@ -260,7 +333,7 @@ type Query struct {
 	Weight  *float64      `yaml:"weight" json:"weight,omitempty"`
 	Type    string        `yaml:"type" json:"type,omitempty"`
 	SQL     string        `yaml:"sql" json:"sql,omitempty"`
-	Args    []any         `yaml:"args" json:"args,omitempty"`
+	Args    []Arg         `yaml:"args" json:"args,omitempty"`
 	Tx      []TxStatement `yaml:"tx" json:"tx,omitempty"`
 	Timeout *Duration     `yaml:"timeout" json:"timeout,omitempty"`
 	Prepare bool          `yaml:"prepare" json:"prepare,omitempty"`

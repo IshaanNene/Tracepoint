@@ -1071,18 +1071,7 @@
                 "description": "Bind arguments, in order. An argument that is exactly one generator keeps its native type, so {{randInt 1 100}} binds as an integer.",
                 "type": "array",
                 "items": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/templateString"
-                    },
-                    {
-                      "type": [
-                        "number",
-                        "boolean",
-                        "null"
-                      ]
-                    }
-                  ]
+                  "$ref": "#/$defs/arg"
                 },
                 "examples": [
                   [
@@ -1113,18 +1102,7 @@
                       "description": "Bind arguments for this statement.",
                       "type": "array",
                       "items": {
-                        "anyOf": [
-                          {
-                            "$ref": "#/$defs/templateString"
-                          },
-                          {
-                            "type": [
-                              "number",
-                              "boolean",
-                              "null"
-                            ]
-                          }
-                        ]
+                        "$ref": "#/$defs/arg"
                       }
                     }
                   }
@@ -1496,6 +1474,38 @@
           "default": true
         }
       }
+    },
+    "arg": {
+      "description": "A bind argument. Usually a scalar or a template; write {value: ..., secret: true} when it carries something that must never appear in a report, and its value is redacted from every artifact.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/templateString"
+        },
+        {
+          "type": [
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "description": "The argument itself."
+            },
+            "secret": {
+              "description": "Redact this value everywhere: logs, result.json, HTML, digests, events and errors.",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      ]
     }
   }
 }

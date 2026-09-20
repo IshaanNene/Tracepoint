@@ -37,9 +37,14 @@ type Options struct {
 	Lookup func(string) (string, bool)
 	// Stdin is read for the "-" path.
 	Stdin io.Reader
-	// SkipDefaults leaves unset fields at their zero values. `validate` uses it to
-	// report what the file says rather than what it would become.
-	SkipDefaults bool
+	// Raw returns the document as written: no defaults, no validation.
+	//
+	// It exists for the --set path. Overrides are input, at the top of the precedence
+	// chain, so they have to be applied before defaults are derived from the values
+	// they change - otherwise raising run.duration leaves the rate shorthand's stage
+	// at the old length and the configuration contradicts itself. The caller finishes
+	// with Finalise.
+	Raw bool
 }
 
 // envRef matches ${NAME} and ${NAME:-default}.
@@ -94,13 +99,22 @@ func Load(ctx context.Context, src Source, opts Options) (*Config, error) {
 			WithPath("/version").
 			WithHint("this build understands version %d; add `version: %d` at the top of the file", Version, Version)
 	}
-	if !opts.SkipDefaults {
-		cfg.ApplyDefaults()
+	if opts.Raw {
+		return &cfg, nil
 	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.Finalise(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// Finalise derives every default and then validates.
+//
+// Defaults come second so that an error always describes what was written, and
+// validation comes last so it judges the configuration that will actually run.
+func (c *Config) Finalise() error {
+	c.ApplyDefaults()
+	return c.Validate()
 }
 
 func read(src Source, stdin io.Reader) ([]byte, error) {

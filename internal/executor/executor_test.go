@@ -38,6 +38,7 @@ func (f *fakeRunner) Name() string                  { return "http" }
 func (f *fakeRunner) Kind() metrics.Kind            { return metrics.KindApp }
 func (f *fakeRunner) Labels() []string              { return []string{"probe"} }
 func (f *fakeRunner) Prepare(context.Context) error { return nil }
+func (f *fakeRunner) SetStart(t time.Time)          { f.start = t }
 func (f *fakeRunner) Close() error                  { return nil }
 
 func (f *fakeRunner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recorder) error {

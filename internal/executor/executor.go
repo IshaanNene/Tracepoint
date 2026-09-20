@@ -38,7 +38,10 @@ type Config struct {
 	Runner    runner.Runner
 	Schedule  *schedule.Schedule
 	Collector *metrics.Collector
-	Clock     clock.Clock
+	// Recorder is what outcomes are written to. It defaults to Collector; the engine
+	// supplies a wrapper so the abort guard sees every outcome on its way through.
+	Recorder metrics.Recorder
+	Clock    clock.Clock
 
 	// Start is the single monotonic instant every runner and sampler shares. Arrival
 	// offsets are measured from it.
@@ -105,6 +108,9 @@ func NewArrivalRate(cfg Config) (*ArrivalRate, error) {
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	if cfg.Recorder == nil {
+		cfg.Recorder = cfg.Collector
 	}
 	lag, err := newLagTracker()
 	if err != nil {
@@ -210,7 +216,7 @@ func (e *ArrivalRate) work(ctx context.Context, worker int) {
 			WorkerStart: e.elapsed(),
 			Rand:        rng,
 		}
-		if err := e.cfg.Runner.Do(ctx, &it, e.cfg.Collector); err != nil {
+		if err := e.cfg.Runner.Do(ctx, &it, e.cfg.Recorder); err != nil {
 			// An operation that merely failed is recorded by the runner as an error
 			// outcome. Reaching here means the runner could not even attempt it, which
 			// is worth a line in the log but is not a reason to stop the run.

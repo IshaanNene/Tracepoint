@@ -1,6 +1,7 @@
 package template
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -91,8 +92,11 @@ func (p *part) renderString(ctx *Context) (string, error) {
 		return strconv.FormatInt(x, 10), nil
 	case time.Time:
 		return x.UTC().Format(time.RFC3339Nano), nil
+	case nil:
+		return "", nil
 	default:
-		return "", errs.New(errs.CodeInternal, "a generator produced an unexpected %T", v)
+		// A wrapped literal can be any type the configuration held.
+		return fmt.Sprint(x), nil
 	}
 }
 
@@ -100,6 +104,9 @@ func (p *part) renderValue(ctx *Context) (any, error) {
 	switch p.kind {
 	case kindLiteral:
 		return p.literal, nil
+
+	case kindValue:
+		return p.value, nil
 
 	case kindVar:
 		if ctx == nil || ctx.Vars == nil {

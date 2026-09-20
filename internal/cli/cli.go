@@ -262,6 +262,7 @@ pressure.`),
 	root.AddCommand(
 		newRunCmd(env, g),
 		newValidateCmd(env, g),
+		newDoctorCmd(env, g),
 		newSchemaCmd(env),
 		newVersionCmd(env, g),
 	)

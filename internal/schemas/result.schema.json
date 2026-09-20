@@ -924,7 +924,7 @@
               "minimum": 0
             },
             "pool": {
-              "description": "Pool behaviour from database/sql. Wait time here is generator-side, not database latency.",
+              "description": "Pool behaviour from database/sql. Waiting here is generator-side, not database latency, which is why connections are acquired explicitly and timed apart from the query.",
               "type": "object",
               "additionalProperties": false,
               "properties": {
@@ -964,7 +964,7 @@
               "minimum": 0
             },
             "pool": {
-              "description": "go-redis pool statistics. Timeouts or waits here are generator-side.",
+              "description": "go-redis pool statistics. A timeout or a wait here is generator-side.",
               "type": "object",
               "additionalProperties": false,
               "properties": {

@@ -24,6 +24,8 @@ type RunnerInput struct {
 	Driver   string
 	Targets  []Target
 	HTTP     *HTTPDetail
+	SQL      *SQLDetail
+	Redis    *RedisDetail
 	Stages   []Stage
 }
 
@@ -143,6 +145,8 @@ func buildRunner(in RunnerInput) Runner {
 		Sketches:       map[string]Sketch{},
 		Buckets:        convertBuckets(s.Buckets),
 		HTTP:           in.HTTP,
+		SQL:            in.SQL,
+		Redis:          in.Redis,
 	}
 	for name, sum := range s.LabelSummaries {
 		out.LabelSummaries[name] = convertSummary(sum)

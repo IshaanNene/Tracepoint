@@ -188,6 +188,37 @@ type HTTPDetail struct {
 	InsecureTLS     bool                 `json:"insecure_tls,omitempty"`
 }
 
+// SQLDetail is the SQL-specific part of a runner.
+type SQLDetail struct {
+	Reads  int64    `json:"reads"`
+	Writes int64    `json:"writes"`
+	Pool   *SQLPool `json:"pool,omitempty"`
+}
+
+// SQLPool is what the connection pool did. Waiting here is generator-side and must not
+// be read as database latency.
+type SQLPool struct {
+	MaxOpen     int     `json:"max_open,omitempty"`
+	PeakInUse   int     `json:"peak_in_use,omitempty"`
+	WaitCount   int64   `json:"wait_count,omitempty"`
+	WaitMSTotal float64 `json:"wait_ms_total,omitempty"`
+}
+
+// RedisDetail is the Redis-specific part of a runner.
+type RedisDetail struct {
+	Reads  int64      `json:"reads"`
+	Writes int64      `json:"writes"`
+	Pool   *RedisPool `json:"pool,omitempty"`
+}
+
+// RedisPool is what the client pool did. Timeouts here are generator-side.
+type RedisPool struct {
+	Size     int   `json:"size,omitempty"`
+	Hits     int64 `json:"hits,omitempty"`
+	Misses   int64 `json:"misses,omitempty"`
+	Timeouts int64 `json:"timeouts,omitempty"`
+}
+
 // Runner is everything recorded for one tier.
 type Runner struct {
 	Name           string               `json:"name"`
@@ -202,6 +233,8 @@ type Runner struct {
 	Buckets        []Bucket             `json:"buckets"`
 	LabelBuckets   map[string][]Bucket  `json:"label_buckets,omitempty"`
 	HTTP           *HTTPDetail          `json:"http,omitempty"`
+	SQL            *SQLDetail           `json:"sql,omitempty"`
+	Redis          *RedisDetail         `json:"redis,omitempty"`
 }
 
 // Telemetry is server-side and generator-side health on the shared clock. Populated

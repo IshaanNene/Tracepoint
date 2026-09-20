@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,9 +23,12 @@ import (
 	"github.com/IshaanNene/Tracepoint/internal/errs"
 	"github.com/IshaanNene/Tracepoint/internal/executor"
 	"github.com/IshaanNene/Tracepoint/internal/metrics"
+	"github.com/IshaanNene/Tracepoint/internal/policy"
 	"github.com/IshaanNene/Tracepoint/internal/result"
 	"github.com/IshaanNene/Tracepoint/internal/runner"
 	"github.com/IshaanNene/Tracepoint/internal/runner/httprun"
+	"github.com/IshaanNene/Tracepoint/internal/runner/redisrun"
+	"github.com/IshaanNene/Tracepoint/internal/runner/sqlrun"
 	"github.com/IshaanNene/Tracepoint/internal/schedule"
 )
 
@@ -48,6 +50,12 @@ type Options struct {
 	Seed *uint64
 	// Progress, when set, is called about once a second with a live summary.
 	Progress func(Progress)
+	// Policy is the envelope this run must stay inside. The zero value is the default
+	// envelope, which refuses public targets and grants no writes.
+	Policy policy.Policy
+	// Warnings carries findings made before the engine started - by policy
+	// application, for instance - into the result.
+	Warnings []result.Finding
 }
 
 // Progress is a live view of a run, for the terminal or an event stream.
@@ -71,6 +79,12 @@ type Engine struct {
 	start time.Time
 
 	runners []*boundRunner
+	guard   *AbortGuard
+	// aborted is set when the guard stops the run, so the result says why.
+	aborted atomic.Value
+	// stopArrivals and cutOffWork let the guard end a run from the record path.
+	stopArrivals context.CancelFunc
+	cutOffWork   context.CancelFunc
 }
 
 // boundRunner is a runner with everything it needs to be driven.
@@ -81,6 +95,7 @@ type boundRunner struct {
 	exec      *executor.ArrivalRate
 	stages    []result.Stage
 	targets   []result.Target
+	recorder  metrics.Recorder
 }
 
 // New prepares an engine. It does not touch the network; Run does.
@@ -145,6 +160,11 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 
 	e.start = e.clk.Now()
 	startedAt := e.start
+	// Every runner measures from this one instant. That is what puts all three tiers
+	// on a single timeline and makes "they went slow together" an observation.
+	for _, br := range e.runners {
+		br.runner.SetStart(e.start)
+	}
 	for _, br := range e.runners {
 		br.exec = nil // rebuilt below now that the start instant exists
 	}
@@ -156,6 +176,7 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	// is offered.
 	arrivalCtx, stopArrivals := context.WithCancel(ctx)
 	defer stopArrivals()
+	e.stopArrivals = stopArrivals
 
 	// Work deliberately does not inherit ctx. That is the whole of a graceful drain:
 	// when the caller cancels, in-flight operations must be allowed to finish within
@@ -163,6 +184,7 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	// abandon them and record a burst of cancellations as the run's final act.
 	workCtx, cutOffWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer cutOffWork()
+	e.cutOffWork = cutOffWork
 
 	var status atomic.Value
 	status.Store(result.StatusCompleted)
@@ -235,17 +257,29 @@ func (e *Engine) after(d time.Duration) <-chan time.Time {
 	return t.C()
 }
 
-// build creates the collectors and runners. Executors are built later, once the run
-// start instant exists.
+// build creates the collectors and runners.
+//
+// Executors are built later, once the run start instant exists, because every runner
+// measures its arrivals from that one instant.
 func (e *Engine) build() error {
 	cfg := e.opts.Config
-	for _, name := range cfg.Runners() {
-		if name != httprun.Name {
-			return errs.New(errs.CodeConfigInvalidValue,
-				"the %s runner is not in this build yet", name).
-				WithPath("/"+name).
-				WithHint("SQL and Redis runners land in phase 2; available now: %v", runner.Registered())
+
+	guard := cfg.Safety.AbortGuard
+	enabled, ratio, window := true, DefaultAbortRatio, DefaultAbortWindow
+	if guard != nil {
+		if guard.Enabled != nil {
+			enabled = *guard.Enabled
 		}
+		if guard.ErrorRatio != nil {
+			ratio = *guard.ErrorRatio
+		}
+		if guard.Window != nil {
+			window = guard.Window.D()
+		}
+	}
+	e.guard = NewAbortGuard(enabled, ratio, window)
+
+	for _, name := range cfg.Runners() {
 		col, err := metrics.NewCollector(metrics.Config{
 			Runner:        name,
 			Kind:          metrics.Kind(config.Kind(name)),
@@ -263,18 +297,46 @@ func (e *Engine) build() error {
 			RunID: e.opts.RunID, Collector: col, Clock: e.clk,
 			Seed: e.seed, Logger: e.log,
 		}
-		// Start is filled in when the run actually begins; runners read it through
-		// Deps, so the value has to be set before any operation is performed.
-		r, err := httprun.New(cfg.HTTP, cfg.Run.Duration.D(), cfg.Run.Timeout.D(), deps)
+
+		var r runner.Runner
+		switch name {
+		case httprun.Name:
+			r, err = httprun.New(cfg.HTTP, cfg.Run.Duration.D(), cfg.Run.Timeout.D(), deps)
+		case sqlrun.Name:
+			r, err = sqlrun.New(cfg.DB, cfg.Run.Timeout.D(), deps)
+		case redisrun.Name:
+			r, err = redisrun.New(cfg.Redis, cfg.Run.Timeout.D(), deps)
+		default:
+			return errs.New(errs.CodeConfigInvalidValue, "no runner named %q", name).
+				WithHint("available runners: %v", runner.Registered())
+		}
 		if err != nil {
 			return err
 		}
-		e.runners = append(e.runners, &boundRunner{name: name, runner: r, collector: col})
+
+		br := &boundRunner{name: name, runner: r, collector: col}
+		// Every outcome passes the guard on its way to the collector, so a target that
+		// is clearly failing stops the run rather than being hammered unattended.
+		br.recorder = &guardedRecorder{inner: col, guard: e.guard, abort: e.onAbort}
+		e.runners = append(e.runners, br)
 	}
 	if len(e.runners) == 0 {
 		return errs.New(errs.CodeConfigNoRunner, "no runner is configured")
 	}
 	return nil
+}
+
+// onAbort is called once, the first time the guard trips.
+func (e *Engine) onAbort() {
+	_, reason := e.guard.Tripped()
+	e.aborted.Store(reason)
+	e.log.Warn("aborting: the target is failing", "reason", reason)
+	if e.stopArrivals != nil {
+		e.stopArrivals()
+	}
+	if e.cutOffWork != nil {
+		e.cutOffWork()
+	}
 }
 
 // buildExecutors compiles each runner's load profile now that the start instant is
@@ -309,7 +371,7 @@ func (e *Engine) buildExecutors() error {
 			queue = *ex.QueueDepth
 		}
 		exec, err := executor.NewArrivalRate(executor.Config{
-			Runner: br.runner, Schedule: sched, Collector: br.collector,
+			Runner: br.runner, Schedule: sched, Collector: br.collector, Recorder: br.recorder,
 			Clock: e.clk, Start: e.start,
 			MaxInFlight: ex.MaxInFlight, QueueDepth: queue,
 			Seed: e.seed, Logger: e.log,
@@ -318,29 +380,71 @@ func (e *Engine) buildExecutors() error {
 			return err
 		}
 		br.exec = exec
+	}
+	return nil
+}
 
-		// Runners need the start instant to convert their own stamps into offsets.
-		if h, ok := br.runner.(*httprun.Runner); ok {
-			h.SetStart(e.start)
+// preflight checks everything that can be checked before any load is generated.
+//
+// Targets are resolved and judged against the policy first, because refusing to point
+// load at a host is worthless if a connection has already been made to it. Only then
+// does each runner connect, probe and prepare.
+func (e *Engine) preflight(ctx context.Context) error {
+	cfg := e.opts.Config
+	targets := map[string]result.Target{}
+	for _, host := range cfg.Targets() {
+		t, err := policy.Resolve(ctx, nil, host)
+		if err != nil {
+			return err
+		}
+		if err := e.opts.Policy.CheckTarget(t); err != nil {
+			return err
+		}
+		targets[host] = result.Target{Host: t.Host, Addrs: t.Addrs, Scope: string(t.Scope)}
+	}
+
+	for _, br := range e.runners {
+		if err := br.runner.Prepare(ctx); err != nil {
+			return err
+		}
+		for _, host := range e.hostsFor(br.name) {
+			if t, ok := targets[host]; ok {
+				br.targets = append(br.targets, t)
+			}
 		}
 	}
 	return nil
 }
 
-// preflight checks every target before any load starts.
-func (e *Engine) preflight(ctx context.Context) error {
-	for _, br := range e.runners {
-		if err := br.runner.Prepare(ctx); err != nil {
-			return err
+// hostsFor is the subset of the run's targets that belong to one runner.
+func (e *Engine) hostsFor(name string) []string {
+	cfg := e.opts.Config
+	switch name {
+	case httprun.Name:
+		for _, br := range e.runners {
+			if br.name != name {
+				continue
+			}
+			if h, ok := br.runner.(*httprun.Runner); ok {
+				return h.Targets()
+			}
 		}
-		// Targets are resolved here, while a context exists, and the classification is
-		// kept for the result: it drives the same-host caveat and, from phase 2, the
-		// policy decision.
-		if h, ok := br.runner.(*httprun.Runner); ok {
-			br.targets = resolveTargets(ctx, h.Targets())
+		return nil
+	case sqlrun.Name:
+		if cfg.DB == nil {
+			return nil
 		}
+		sub := &config.Config{Version: cfg.Version, DB: cfg.DB}
+		return sub.Targets()
+	case redisrun.Name:
+		if cfg.Redis == nil {
+			return nil
+		}
+		sub := &config.Config{Version: cfg.Version, Redis: cfg.Redis}
+		return sub.Targets()
+	default:
+		return nil
 	}
-	return nil
 }
 
 // startSweeper seals buckets on a ticker and reports progress. It returns a function
@@ -401,11 +505,18 @@ func (e *Engine) closeRunners() {
 }
 
 func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status, interrupted string) (*result.Result, error) {
+	// An abort overrides whatever the run thought it was doing: the guard stopped it.
+	if reason, ok := e.aborted.Load().(string); ok && reason != "" {
+		status = result.StatusAborted
+		interrupted = reason
+	}
+
 	in := result.BuildInput{
-		RunID: e.opts.RunID, Config: e.opts.Config, SourcePath: e.opts.SourcePath,
+		RunID: e.opts.RunID, Config: e.opts.Config.Redacted(), SourcePath: e.opts.SourcePath,
 		Overrides: e.opts.Overrides, Seed: e.seed,
 		StartedAt: startedAt, FinishedAt: e.clk.Now(), Elapsed: elapsed,
 		Status: status, Interrupted: interrupted,
+		Warnings: append([]result.Finding(nil), e.opts.Warnings...),
 	}
 	for _, br := range e.runners {
 		ri := result.RunnerInput{
@@ -414,6 +525,27 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 			Stages:   br.stages,
 		}
 		ri.Targets = br.targets
+		switch impl := br.runner.(type) {
+		case *sqlrun.Runner:
+			reads, writes := impl.Counts()
+			stats := impl.PoolStats()
+			ri.Driver = impl.Driver()
+			ri.SQL = &result.SQLDetail{
+				Reads: reads, Writes: writes,
+				Pool: &result.SQLPool{
+					MaxOpen: stats.MaxOpenConnections, PeakInUse: stats.InUse,
+					WaitCount: stats.WaitCount, WaitMSTotal: float64(stats.WaitDuration) / float64(time.Millisecond),
+				},
+			}
+		case *redisrun.Runner:
+			reads, writes := impl.Counts()
+			ri.Redis = &result.RedisDetail{Reads: reads, Writes: writes}
+			if stats := impl.PoolStats(); stats != nil {
+				ri.Redis.Pool = &result.RedisPool{
+					Hits: int64(stats.Hits), Misses: int64(stats.Misses), Timeouts: int64(stats.Timeouts),
+				}
+			}
+		}
 		if h, ok := br.runner.(*httprun.Runner); ok {
 			phases := h.PhaseBreakdown()
 			ri.HTTP = &result.HTTPDetail{
@@ -453,55 +585,4 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 
 func q(v metrics.Quantiles) result.Quantiles {
 	return result.Quantiles{P50: v.P50, P90: v.P90, P95: v.P95, P99: v.P99, P999: v.P999, Max: v.Max, Mean: v.Mean}
-}
-
-// resolveTargets classifies each host, which drives the same-host caveat and, from
-// phase 2, the policy decision.
-func resolveTargets(ctx context.Context, hosts []string) []result.Target {
-	var resolver net.Resolver
-	out := make([]result.Target, 0, len(hosts))
-	for _, h := range hosts {
-		t := result.Target{Host: h}
-		addrs, err := resolver.LookupHost(ctx, h)
-		if err != nil {
-			out = append(out, t)
-			continue
-		}
-		t.Addrs = addrs
-		t.Scope = classifyScope(addrs)
-		out = append(out, t)
-	}
-	return out
-}
-
-// classifyScope reports the widest scope among a host's addresses. Widest, because a
-// host that resolves to both a private and a public address is reachable publicly, and
-// the safety decision must be made on that.
-func classifyScope(addrs []string) string {
-	scope := result.ScopeLoopback
-	rank := map[string]int{
-		result.ScopeLoopback: 0, result.ScopeLinkLocal: 1,
-		result.ScopePrivate: 2, result.ScopePublic: 3,
-	}
-	for _, a := range addrs {
-		ip := net.ParseIP(a)
-		if ip == nil {
-			continue
-		}
-		var s string
-		switch {
-		case ip.IsLoopback():
-			s = result.ScopeLoopback
-		case ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast():
-			s = result.ScopeLinkLocal
-		case ip.IsPrivate():
-			s = result.ScopePrivate
-		default:
-			s = result.ScopePublic
-		}
-		if rank[s] > rank[scope] {
-			scope = s
-		}
-	}
-	return scope
 }

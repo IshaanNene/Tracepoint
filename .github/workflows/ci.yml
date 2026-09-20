@@ -31,7 +31,7 @@ jobs:
           out="$(gofmt -s -l . | grep -v '^$' || true)"
           if [ -n "$out" ]; then echo "unformatted files:"; echo "$out"; exit 1; fi
       - run: go vet ./...
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
 

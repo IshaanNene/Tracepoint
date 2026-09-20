@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "http": {
+    "requests": [
+      {
+        "name": "a",
+        "url": "u"
+      }
+    ],
+    "executor": {
+      "type": "vus",
+      "rate": 10
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/policy.schema.json",
+  "title": "TracePoint safety policy",
+  "description": "The envelope a human grants. Supplied with --policy, TRACEPOINT_POLICY or individual flags, and fixed for the lifetime of a server. A configuration's safety section can only tighten this; anything looser is refused with POLICY_DENIED and exit 2, naming exactly what a human must change. Agents cannot raise a policy.",
+  "type": "object",
+  "required": ["version"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "description": "Policy format version. Only 1 exists.", "const": 1, "examples": [1] },
+    "allow_targets": {
+      "description": "Hosts, IP addresses or CIDRs that may be targeted even when they resolve to public addresses. Loopback, private and link-local addresses are allowed without listing. Every target host is resolved before load starts and checked against this list.",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "examples": [["api.staging.internal", "10.0.0.0/8"]]
+    },
+    "deny_targets": {
+      "description": "Hosts, IP addresses or CIDRs that are never allowed, even if they are private or appear in allow_targets. Checked first.",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "examples": [["prod-db.internal"]]
+    },
+    "allow_public_targets": {
+      "description": "Allow any public address without listing it. Off by default: pointing a load generator at an arbitrary public host is how a test becomes an attack.",
+      "type": "boolean",
+      "default": false
+    },
+    "allow_writes": { "description": "Permit SQL statements and Redis commands classified as writes.", "type": "boolean", "default": false },
+    "allow_dangerous": { "description": "Permit destructive or administrative statements. Implies nothing about allow_writes; both are required for a destructive write.", "type": "boolean", "default": false },
+    "allow_insecure_tls": { "description": "Permit tls.insecure_skip_verify.", "type": "boolean", "default": false },
+    "allow_detach": { "description": "Permit background runs (run --detach and the start_run operation).", "type": "boolean", "default": true },
+    "max_rate_per_runner": { "description": "Ceiling on offered operations per second for any single runner.", "type": "number", "exclusiveMinimum": 0, "examples": [500] },
+    "max_in_flight": { "description": "Ceiling on concurrent in-flight operations for any single runner.", "type": "integer", "exclusiveMinimum": 0, "examples": [2000] },
+    "max_duration": {
+      "description": "Ceiling on run.duration, as a Go duration string.",
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+      "examples": ["10m"]
+    },
+    "max_concurrent_runs": { "description": "How many runs may be active at once. Two tests against one target measure each other.", "type": "integer", "exclusiveMinimum": 0, "default": 1 },
+    "run_root": { "description": "Directory run directories are created under. Servers refuse paths outside it.", "type": "string", "default": "runs", "examples": ["runs"] },
+    "redact_headers": {
+      "description": "Additional header names whose values are redacted everywhere. Authorization, Cookie, Set-Cookie, Proxy-Authorization and X-Api-Key are always redacted.",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "examples": [["X-Internal-Token"]]
+    }
+  }
+}

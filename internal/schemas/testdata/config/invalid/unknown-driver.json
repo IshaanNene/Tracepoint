@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "db": {
+    "driver": "oracle",
+    "dsn": "d",
+    "queries": [
+      {
+        "name": "q",
+        "sql": "S"
+      }
+    ]
+  }
+}

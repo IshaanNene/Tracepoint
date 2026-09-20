@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "db": {
+    "driver": "postgres",
+    "dsn": "d",
+    "queries": [
+      {
+        "name": "q"
+      }
+    ]
+  }
+}

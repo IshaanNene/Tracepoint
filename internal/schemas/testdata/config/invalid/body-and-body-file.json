@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "http": {
+    "requests": [
+      {
+        "name": "a",
+        "url": "u",
+        "body": "x",
+        "body_file": "f"
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+
+TracePoint  capacity-probe
+  completed over 3.0m · 180 bucket(s) of 1.0s · seed 42
+
+  RUN       INVALID
+    x the http runner dropped 39.4% of arrivals while service time stayed flat:
+      the ceiling was ours, not the target's
+      fix: raise http.executor.max_in_flight to about 248 (Little's Law: 200
+      req/s x 1240ms service time)
+
+  SLO       FAIL
+    over http   p99         1.2s       budget 250ms
+
+  RUNNER  KIND  N      RPS    ERR    p50    p95    p99   max
+  http    app   36000  200.0  0.64%  410ms  980ms  1.2s  2.0s
+  89% of http p99 (1.2s) was waiting inside the generator; http itself took 60ms
+  http dropped 14200 of 36000 arrivals (39.4%) because every worker was busy
+
+  RUNNER  ERRORS
+  http    timeout 214, connection 18
+
+  VERDICT   CLIENT  confidence: high
+    This run is invalid: the load generator, not the target, set the pace. Its
+    latency numbers describe TracePoint's own delay and must not be read as a
+    measurement of the target.
+    · the http runner dropped 39.4% of arrivals while service time stayed flat
+    Shared-clock correlation shows association, not causation.
+    → raise http.executor.max_in_flight to about 248
+
+  result   runs/20260920T120000Z-a1b2c3/result.json
+  report   runs/20260920T120000Z-a1b2c3/report.html
+

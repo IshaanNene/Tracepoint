@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "db": {
+    "driver": "mysql",
+    "dsn": "${MY_DSN}",
+    "queries": [
+      {
+        "name": "checkout",
+        "type": "write",
+        "tx": [
+          {
+            "sql": "INSERT INTO orders(id) VALUES(?)",
+            "args": [
+              "{{uuid}}"
+            ]
+          },
+          {
+            "sql": "UPDATE stock SET n = n - 1 WHERE id = ?",
+            "args": [
+              "{{randInt 1 100}}"
+            ]
+          }
+        ]
+      }
+    ],
+    "executor": {
+      "rate": 10
+    }
+  },
+  "safety": {
+    "allow_writes": true
+  }
+}

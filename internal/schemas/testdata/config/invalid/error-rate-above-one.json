@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "slo": {
+    "http": {
+      "error_rate": 1.5
+    }
+  },
+  "http": {
+    "requests": [
+      {
+        "name": "a",
+        "url": "http://127.0.0.1:8080/"
+      }
+    ]
+  }
+}

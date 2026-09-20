@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "http": {
+    "journeys": [
+      {
+        "name": "browse-and-buy",
+        "weight": 1,
+        "steps": [
+          {
+            "name": "list",
+            "url": "/api/items",
+            "extract": [
+              {
+                "name": "item_id",
+                "from": "body",
+                "path": "items.0.id"
+              }
+            ]
+          },
+          {
+            "name": "buy",
+            "method": "POST",
+            "url": "/api/orders",
+            "body": "{\"item\":\"{{item_id}}\"}",
+            "expect": {
+              "status": [
+                201
+              ]
+            },
+            "think": {
+              "type": "exponential",
+              "mean": "2s"
+            }
+          }
+        ]
+      }
+    ],
+    "base_url": "http://127.0.0.1:8080",
+    "feeders": [
+      {
+        "name": "users",
+        "file": "testdata/users.csv",
+        "mode": "unique"
+      }
+    ],
+    "executor": {
+      "vus": 20,
+      "type": "vus"
+    }
+  }
+}

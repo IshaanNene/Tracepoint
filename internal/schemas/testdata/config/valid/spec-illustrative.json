@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "run": {
+    "duration": "3m",
+    "bucket": "1s",
+    "warmup": "15s",
+    "seed": 42,
+    "arrival": "poisson",
+    "timeout": "10s"
+  },
+  "slo": {
+    "http": {
+      "p99": "250ms",
+      "error_rate": 0.01
+    },
+    "db": {
+      "p99": "100ms"
+    },
+    "redis": {
+      "p99": "20ms"
+    }
+  },
+  "http": {
+    "executor": {
+      "type": "arrival-rate",
+      "max_in_flight": 400,
+      "stages": [
+        {
+          "duration": "30s",
+          "target": 200
+        },
+        {
+          "duration": "150s",
+          "target": 200
+        }
+      ]
+    },
+    "requests": [
+      {
+        "name": "list-items",
+        "weight": 3,
+        "method": "GET",
+        "url": "${BASE_URL}/api/items"
+      },
+      {
+        "name": "create-item",
+        "weight": 1,
+        "method": "POST",
+        "url": "${BASE_URL}/api/items",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"title\":\"{{randString 12}}\"}",
+        "expect": {
+          "status": [
+            201
+          ]
+        }
+      }
+    ]
+  },
+  "db": {
+    "driver": "postgres",
+    "dsn": "${PG_DSN}",
+    "pool": {
+      "max_open": 20
+    },
+    "executor": {
+      "type": "arrival-rate",
+      "rate": 40
+    },
+    "queries": [
+      {
+        "name": "by-id",
+        "type": "read",
+        "weight": 5,
+        "sql": "SELECT * FROM items WHERE id = $1",
+        "args": [
+          "{{randInt 1 100000}}"
+        ]
+      }
+    ]
+  },
+  "redis": {
+    "addr": "${REDIS_ADDR}",
+    "executor": {
+      "type": "arrival-rate",
+      "rate": 100
+    },
+    "commands": [
+      {
+        "name": "get-session",
+        "weight": 4,
+        "cmd": [
+          "GET",
+          "session:{{randInt 1 50000}}"
+        ]
+      }
+    ]
+  },
+  "telemetry": {
+    "postgres": true,
+    "redis": true
+  }
+}

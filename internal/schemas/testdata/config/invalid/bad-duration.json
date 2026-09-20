@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "run": {
+    "duration": "3 minutes"
+  },
+  "http": {
+    "requests": [
+      {
+        "name": "a",
+        "url": "http://127.0.0.1:8080/"
+      }
+    ]
+  }
+}

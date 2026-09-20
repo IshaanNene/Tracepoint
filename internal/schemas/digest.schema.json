@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/digest.schema.json",
+  "title": "TracePoint digest",
+  "description": "The agent-facing view of a run: a prioritised summary small enough to read in full inside a context window. Read it top to bottom and stop when you have your answer - the order is the priority order. Check validity first, because an invalid run measured the load generator rather than the target and must not be interpreted. Field names carry their units (p99_ms, error_ratio, achieved_rps); numbers are numbers, never strings; there is no ANSI and no filler prose. When content had to be dropped to fit a character budget, truncated is true and more says how to fetch the rest.",
+  "type": "object",
+  "required": ["schema_version", "run_id", "status", "validity", "slo", "verdict"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "description": "Version of this document's shape, MAJOR.MINOR.", "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "examples": ["1.0"] },
+    "run_id": { "description": "The run this digest describes.", "type": "string", "examples": ["20260919T210000Z-a1b2c3"] },
+    "run_name": { "description": "Human label given to the run, when one was set.", "type": "string" },
+    "status": { "description": "How the run ended. Anything other than completed means the data is partial.", "enum": ["completed", "interrupted", "aborted", "failed"] },
+    "started_at": { "description": "Wall-clock start of load.", "type": "string", "format": "date-time" },
+    "duration_s": { "description": "Load duration in seconds, excluding drain.", "type": "number", "examples": [180] },
+
+    "validity": {
+      "description": "Whether the run can be believed. Read this before the verdict. valid: the generator kept up and nothing undermines the numbers. degraded: usable, with the stated caveat attached to any conclusion. invalid: the generator, not the target, set the pace - the verdict below must not be quoted, and the fix is in the findings.",
+      "type": "object",
+      "required": ["state"],
+      "additionalProperties": false,
+      "properties": {
+        "state": { "enum": ["valid", "degraded", "invalid"], "examples": ["valid"] },
+        "findings": {
+          "description": "Why it is not valid, each with the change that would fix it.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "severity", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "code": { "description": "Stable code from docs/ERRORS.md.", "type": "string", "examples": ["GENERATOR_BEHIND"] },
+              "severity": { "enum": ["info", "warn", "error"] },
+              "message": { "description": "What was observed.", "type": "string" },
+              "fix": { "description": "What to change.", "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "slo": {
+      "description": "Budget outcome. pass false is why the command exited 1.",
+      "type": "object",
+      "required": ["pass"],
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "description": "True when every configured budget held. True with no budgets configured means nothing was checked, not that the system is healthy.", "type": "boolean" },
+        "configured": { "description": "Whether any budget was configured at all.", "type": "boolean" },
+        "breaches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["runner", "metric", "budget", "actual"],
+            "additionalProperties": false,
+            "properties": {
+              "runner": { "type": "string", "examples": ["http"] },
+              "metric": { "enum": ["p95", "p99", "error_rate"] },
+              "budget": { "description": "Configured limit: milliseconds for latency, a ratio for error_rate.", "type": "number", "examples": [250] },
+              "actual": { "description": "Measured value in the same unit.", "type": "number", "examples": [412.6] }
+            }
+          }
+        }
+      }
+    },
+
+    "verdict": {
+      "description": "Which tier the latency came from, with the evidence behind it. This is an association observed on a shared clock, not a proof of causation; the caveat field says so and should be carried into any report built from this.",
+      "type": "object",
+      "required": ["bottleneck", "confidence", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "bottleneck": { "description": "app: the application tier itself. db or redis: that storage tier. client: the load generator or its configuration, not the target. none: nothing stood out. inconclusive: the data cannot say.", "enum": ["app", "db", "redis", "client", "none", "inconclusive"], "examples": ["db"] },
+        "confidence": { "description": "From sample sizes, incident count, correlation strength and whether server-side telemetry corroborated it. Do not report a low-confidence verdict as a finding.", "enum": ["high", "medium", "low"] },
+        "summary": { "description": "One paragraph, safe to quote verbatim.", "type": "string" },
+        "evidence": { "description": "The specific observations behind it, each checkable in result.json.", "type": "array", "items": { "type": "string" } },
+        "caveat": { "description": "The standing limitation of the method.", "type": "string", "examples": ["Shared-clock correlation shows association, not causation."] },
+        "next_steps": { "description": "What to do next, in priority order.", "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "incidents": {
+      "description": "The most significant episodes, worst first. The full list is in result.json and through get_run_section.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "class", "start_s", "duration_s"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "examples": ["inc-1"] },
+          "class": { "description": "correlated: app and a storage tier were hot together. storage_only: a storage tier was hot while users were unaffected - a bottleneck not yet visible. app_only: the app was hot while every probe stayed healthy. client_limited: the generator's own waiting dominated, so this says nothing about the target. unobserved: too little probe data to classify.", "enum": ["correlated", "storage_only", "app_only", "client_limited", "unobserved"] },
+          "start_s": { "description": "Offset from run start.", "type": "number", "examples": [63] },
+          "duration_s": { "type": "number", "examples": [8] },
+          "runners_hot": { "description": "Runners that were hot.", "type": "array", "items": { "type": "string" }, "examples": [["http", "db"]] },
+          "culprit": { "description": "Best-ranked tier, or null when none stands out or several tie.", "type": ["string", "null"], "examples": ["db"] },
+          "app_p99_ms": { "description": "Worst application p99 during the episode.", "type": "number" },
+          "culprit_p99_ms": { "description": "Worst p99 of the implicated tier.", "type": "number" },
+          "lead_buckets": { "description": "How many buckets the culprit went hot before the application did.", "type": "integer" },
+          "corroboration": { "description": "Server-side signals that moved in the same window.", "type": "array", "items": { "type": "string" }, "examples": [["postgres locks_waiting rose from 0 to 14"]] }
+        }
+      }
+    },
+
+    "runners": {
+      "description": "Headline numbers per tier over the measured window, warm-up excluded. Latency is response time - what a user feels.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "n"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "examples": ["db"] },
+          "kind": { "description": "app is the tier users talk to; storage is a probe-and-load tier behind it.", "enum": ["app", "storage"] },
+          "n": { "description": "Operations completed.", "type": "integer", "examples": [7200] },
+          "achieved_rps": { "type": "number", "examples": [40.1] },
+          "error_ratio": { "type": "number", "examples": [0.0004] },
+          "p50_ms": { "type": "number" },
+          "p95_ms": { "type": "number" },
+          "p99_ms": { "type": "number", "examples": [96.2] },
+          "service_p99_ms": { "description": "Service time p99 - what the target did, with generator-side waiting removed.", "type": "number" },
+          "client_wait_p99_ms": { "description": "Generator-side waiting at p99. When this is a large share of p99_ms, the number describes the generator, not the target.", "type": "number" },
+          "dropped_ratio": { "description": "Share of scheduled arrivals never dispatched for want of a worker.", "type": "number" },
+          "top_errors": { "description": "The most common failure classes, worst first.", "type": "array", "items": { "type": "string" }, "examples": [["timeout: 34", "http_5xx: 12"]] }
+        }
+      }
+    },
+
+    "correlation": {
+      "description": "How closely each storage probe's latency tracked the application's over the whole run. A positive lag means the storage tier moved first.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["storage", "rho"],
+        "additionalProperties": false,
+        "properties": {
+          "storage": { "type": "string", "examples": ["db"] },
+          "rho": { "description": "Spearman rank correlation at the best lag, -1 to 1.", "type": "number", "examples": [0.82] },
+          "lag_buckets": { "description": "Lag maximising the correlation, in buckets.", "type": "integer", "examples": [1] },
+          "n_buckets": { "description": "Buckets compared. Below about 30 this is weak evidence.", "type": "integer" }
+        }
+      }
+    },
+
+    "telemetry": {
+      "description": "One line per sampler: what it saw, or why it saw nothing. An unavailable sampler lowers verdict confidence.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "available"],
+        "additionalProperties": false,
+        "properties": {
+          "source": { "type": "string", "examples": ["postgres"] },
+          "available": { "type": "boolean" },
+          "reason": { "description": "Why it was unavailable, and the grant that would fix it.", "type": "string" },
+          "highlights": { "description": "The few numbers that mattered.", "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "capacity": {
+      "description": "Present only for capacity searches.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "knob": { "enum": ["rate", "concurrency"] },
+        "last_ok": { "description": "Highest level that held every budget.", "type": "number" },
+        "first_broken": { "description": "Lowest level that broke.", "type": "number" },
+        "stable": { "description": "False when re-running the boundary flipped it, in which case quote the range, not a number.", "type": "boolean" },
+        "culprit_at_break": { "description": "Which tier broke first.", "type": ["string", "null"] },
+        "usl": { "description": "Scalability fit, present only when it was reliable enough to report.", "type": "object" }
+      }
+    },
+
+    "strain": {
+      "description": "For ramping runs, where latency started to degrade.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "found": { "type": "boolean" },
+        "users": { "type": "number" },
+        "rps": { "type": "number" },
+        "message": { "type": "string", "examples": ["strain begins at ~180 users (~420 req/s)"] }
+      }
+    },
+
+    "recommendations": {
+      "description": "What to do next, machine-applicable. An entry with action rerun can be executed directly: `tracepoint run --from <run_id>` plus one --set per override. Apply one at a time and compare, so that a change can be attributed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "why", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "description": "Stable identifier for this recommendation.", "type": "string", "examples": ["raise-max-in-flight"] },
+          "why": { "description": "The observation that prompted it, with numbers.", "type": "string", "examples": ["client_wait dominated 7 hot buckets; Little's Law needs ~240 in flight"] },
+          "action": { "description": "rerun: re-run with the overrides given. configure: change the target's configuration, not the test. investigate: look at something outside TracePoint's view.", "enum": ["rerun", "configure", "investigate"] },
+          "overrides": { "description": "For action rerun, the exact --set arguments to apply.", "type": "array", "items": { "type": "string" }, "examples": [["http.executor.max_in_flight=240"]] },
+          "priority": { "description": "Lower runs first.", "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+
+    "artifacts": {
+      "description": "Where the full data lives when the digest is not enough.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_dir": { "type": "string" },
+        "result": { "description": "The complete result document.", "type": "string", "examples": ["runs/20260919T210000Z-a1b2c3/result.json"] },
+        "report": { "description": "The offline HTML report, for a human.", "type": "string" },
+        "events": { "type": "string" }
+      }
+    },
+
+    "truncated": { "description": "True when content was dropped to fit the character budget. What remains is still the highest-priority material.", "type": "boolean", "default": false },
+    "more": {
+      "description": "How to get what was left out.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hint": { "description": "The concrete next call.", "type": "string", "examples": ["tracepoint digest <run-id> --budget-chars 16000, or get_run_section for one section at a time"] },
+        "sections": { "description": "Sections retrievable individually.", "type": "array", "items": { "enum": ["incidents", "labels", "timeline", "telemetry", "levels"] } },
+        "dropped": { "description": "What was dropped, by name.", "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

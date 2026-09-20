@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "http": {
+    "requests": [
+      {
+        "name": "a",
+        "url": "u"
+      }
+    ],
+    "executor": {
+      "type": "vus",
+      "vus": 50,
+      "pick": "per-vu"
+    }
+  }
+}

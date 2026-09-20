@@ -1,0 +1,99 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+    - e2e
+    - soak
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - contextcheck
+    - errcheck
+    - errorlint
+    - exhaustive
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - noctx
+    - revive
+    - staticcheck
+    - unparam
+    - unused
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy
+        - unnamedResult
+    gosec:
+      excludes:
+        # G404: the load generator deliberately uses math/rand/v2 with a recorded
+        # seed so runs are reproducible; it is never used for anything security-bearing.
+        - G404
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: unreachable-code
+    staticcheck:
+      checks:
+        - all
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      # Tests may be noisier: table-driven helpers, deliberate error ignoring.
+      - path: _test\.go
+        linters:
+          - gosec
+          - unparam
+          - contextcheck
+          - errcheck
+      # The faultbox demo app injects faults on purpose.
+      - path: tools/faultbox/
+        linters:
+          - gosec
+          - noctx
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/IshaanNene/Tracepoint
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

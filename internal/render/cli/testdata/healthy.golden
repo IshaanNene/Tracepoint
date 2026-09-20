@@ -1,0 +1,21 @@
+
+TracePoint  checkout-baseline
+  completed over 3.0m · 180 bucket(s) of 1.0s · seed 42
+
+  RUN       VALID
+  SLO       PASS
+    ok   http   p99         61ms       budget 250ms
+    ok   http   error_rate  0.00%      budget 1.00%
+
+  RUNNER  KIND  N      RPS    ERR    p50   p95   p99   max
+  http    app   36000  200.0  0.00%  12ms  38ms  61ms  141ms
+
+  VERDICT   NONE  confidence: medium
+    Nothing stood out: the run stayed within its budgets and the generator kept
+    to its schedule.
+    · 36000 operations at 200/s, p99 61.2ms, 0.00% errors
+    Shared-clock correlation shows association, not causation.
+
+  result   runs/20260920T120000Z-a1b2c3/result.json
+  report   runs/20260920T120000Z-a1b2c3/report.html
+

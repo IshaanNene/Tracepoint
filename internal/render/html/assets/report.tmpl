@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="{{.CSP}}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="generator" content="TracePoint {{.R.Tool.Version}}">
+<title>{{.Title}}</title>
+<style>{{.UplotCSS}}</style>
+<style>{{.AppCSS}}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the report</a>
+<header class="masthead">
+  <div class="wrap">
+    <p class="eyebrow">TracePoint report</p>
+    <h1>{{if .R.Run.Name}}{{.R.Run.Name}}{{else}}{{.R.Run.ID}}{{end}}</h1>
+    <p class="meta">
+      <span>run <code>{{.R.Run.ID}}</code></span>
+      <span>started {{.R.Run.StartedAt}}</span>
+      <span>{{secs (div .R.Run.DurationMS 1000)}} planned{{if .R.Run.ElapsedMS}}, {{secs (div .R.Run.ElapsedMS 1000)}} elapsed{{end}}</span>
+      <span>{{secs (div .R.Run.BucketMS 1000)}} buckets</span>
+      <span>seed {{.R.Run.Seed}}</span>
+    </p>
+    <ul class="badges" aria-label="Run outcome">
+      <li class="badge validity-{{.R.Analysis.Validity.State}}">validity: {{.R.Analysis.Validity.State}}</li>
+      <li class="badge {{if .R.Analysis.SLO.Pass}}pass{{else}}fail{{end}}">SLO: {{if .R.Analysis.SLO.Pass}}pass{{else}}fail{{end}}</li>
+      <li class="badge neutral">bottleneck: {{.R.Analysis.Verdict.Bottleneck}}</li>
+      <li class="badge neutral">confidence: {{.R.Analysis.Verdict.Confidence}}</li>
+      {{if ne .R.Run.Status "completed"}}<li class="badge fail">run {{.R.Run.Status}}{{if .R.Run.InterruptedReason}}: {{.R.Run.InterruptedReason}}{{end}}</li>{{end}}
+    </ul>
+  </div>
+</header>
+
+<nav class="toc wrap" aria-label="Sections">
+  <a href="#verdict">Verdict</a>
+  <a href="#validity">Validity</a>
+  <a href="#incidents">Incidents</a>
+  <a href="#timeline">Timeline</a>
+  <a href="#runners">Runners</a>
+  {{if .R.Analysis.Correlation}}<a href="#correlation">Correlation</a>{{end}}
+  {{if .R.Telemetry}}<a href="#telemetry">Telemetry</a>{{end}}
+  {{if .R.Capacity}}<a href="#capacity">Capacity</a>{{end}}
+  <a href="#methodology">Methodology</a>
+  <a href="#about">Files</a>
+</nav>
+
+<main id="main" class="wrap">
+
+{{if eq .R.Analysis.Validity.State "invalid"}}
+<div class="callout danger" role="alert">
+  <strong>This run is invalid.</strong> The load generator, not the target, set the pace, so the latencies below describe TracePoint's own limits. Do not read the verdict as a finding about the system under test; fix what the validity findings name and run again.
+</div>
+{{end}}
+
+<section id="verdict" aria-labelledby="verdict-h">
+  <h2 id="verdict-h">Verdict</h2>
+  {{with .R.Analysis.Verdict}}
+  <p class="lede">{{.Summary}}</p>
+  <dl class="facts">
+    <div><dt>Bottleneck</dt><dd>{{.Bottleneck}}</dd></div>
+    <div><dt>Confidence</dt><dd>{{.Confidence}}</dd></div>
+  </dl>
+  {{if .Evidence}}
+  <h3>Evidence</h3>
+  <ul class="evidence">
+    {{range .Evidence}}<li><span class="tag">{{.Kind}}</span> {{.Text}}</li>{{end}}
+  </ul>
+  {{end}}
+  {{if .NextSteps}}
+  <h3>Next steps</h3>
+  <ol>{{range .NextSteps}}<li>{{.}}</li>{{end}}</ol>
+  {{end}}
+  {{if .Caveat}}<p class="caveat">{{.Caveat}}</p>{{end}}
+  {{end}}
+  {{if ne .R.Analysis.Verdict.Caveat .StandingCaveat}}<p class="caveat">{{.StandingCaveat}}</p>{{end}}
+</section>
+
+<section id="validity" aria-labelledby="validity-h">
+  <h2 id="validity-h">Validity and SLOs</h2>
+  <p>Validity is read first: an invalid run measured the generator, and a degraded one carries caveats that limit what it can prove.</p>
+  {{if .R.Analysis.Validity.Findings}}
+  <div class="table-wrap"><table>
+    <caption>Validity findings</caption>
+    <thead><tr><th scope="col">Severity</th><th scope="col">Code</th><th scope="col">Finding</th><th scope="col">Fix</th></tr></thead>
+    <tbody>
+    {{range .R.Analysis.Validity.Findings}}<tr class="sev-{{.Severity}}"><td>{{.Severity}}</td><td><code>{{.Code}}</code></td><td>{{.Message}}</td><td>{{.Fix}}</td></tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}<p>No validity findings.</p>{{end}}
+
+  {{if .R.Analysis.SLO.Checks}}
+  <div class="table-wrap"><table>
+    <caption>SLO checks, on response time (measured from the intended send time)</caption>
+    <thead><tr><th scope="col">Runner</th><th scope="col">Metric</th><th scope="col" class="num">Budget</th><th scope="col" class="num">Actual</th><th scope="col">Result</th></tr></thead>
+    <tbody>
+    {{range .R.Analysis.SLO.Checks}}<tr><td>{{.Runner}}</td><td>{{.Metric}}</td><td class="num">{{budget .Metric .Budget}}</td><td class="num">{{budget .Metric .Actual}}</td><td class="{{if .Pass}}ok{{else}}bad{{end}}">{{if .Pass}}pass{{else}}fail{{end}}</td></tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}<p>No SLOs were configured.</p>{{end}}
+
+  {{if .R.Warnings}}
+  <h3>Warnings</h3>
+  <ul class="findings">{{range .R.Warnings}}<li><code>{{.Code}}</code> {{.Message}}{{if .Fix}} <span class="fix">{{.Fix}}</span>{{end}}</li>{{end}}</ul>
+  {{end}}
+</section>
+
+<section id="incidents" aria-labelledby="incidents-h">
+  <h2 id="incidents-h">Incidents</h2>
+  {{if .R.Analysis.Incidents}}
+  <div class="table-wrap"><table>
+    <caption>Episodes of abnormal latency, merged across runners</caption>
+    <thead><tr><th scope="col">Incident</th><th scope="col">Class</th><th scope="col">Window</th><th scope="col">Culprit</th><th scope="col">Runners</th><th scope="col">App impact</th><th scope="col">Telemetry</th><th scope="col"><span class="sr-only">Show</span></th></tr></thead>
+    <tbody>
+    {{range .R.Analysis.Incidents}}
+    <tr>
+      <th scope="row">{{.ID}}</th>
+      <td><span class="class-{{.Class}}">{{.Class}}</span>{{if .Confidence}}<br><small>{{.Confidence}} confidence</small>{{end}}</td>
+      <td class="num">{{secs .StartS}}–{{secs .EndS}}<br><small>{{secs .DurationS}}</small></td>
+      <td>{{with .Culprit}}{{.Runner}}{{if .TiedWith}} (tied with {{join .TiedWith ", "}}){{end}}{{if .LeadBuckets}}<br><small>led by {{.LeadBuckets}} bucket(s)</small>{{end}}{{range .Reasons}}<br><small>{{.}}</small>{{end}}{{else}}—{{end}}</td>
+      <td><ul class="plain">{{range .Runners}}<li>{{.Name}}: {{if .Hot}}hot, peak p99 {{ms .PeakP99MS}} vs {{ms .BaselineP99}}{{else if .Insufficient}}insufficient data{{else}}healthy{{end}}</li>{{end}}</ul></td>
+      <td>{{with .AppImpact}}peak p99 {{ms .PeakP99MS}}{{if .SLOBreached}}, SLO breached{{end}}{{if .AffectedOps}}<br><small>{{.AffectedOps}} operations</small>{{end}}{{else}}—{{end}}</td>
+      <td>{{if .Telemetry}}<ul class="plain">{{range .Telemetry}}<li>{{.Source}} {{.Signal}}{{if .Note}}: {{.Note}}{{end}}</li>{{end}}</ul>{{else}}—{{end}}</td>
+      <td><button type="button" class="zoom" data-from="{{.StartIndex}}" data-to="{{.EndIndex}}">Show on timeline</button></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}<p>No incidents: no runner had a sustained stretch of hot buckets.</p>{{end}}
+</section>
+
+<section id="timeline" aria-labelledby="timeline-h">
+  <h2 id="timeline-h">Shared timeline</h2>
+  <p>Every runner on one clock. Warm-up, ramps and incidents are shaded; buckets with too few samples for a percentile are gaps.{{if gt .Grouped 1}} For display each point is the maximum of {{.Grouped}} buckets, so no spike is hidden; the analysis used every bucket.{{end}}</p>
+  <form class="controls" id="timeline-controls" aria-label="Timeline options">
+    <fieldset><legend>Percentile</legend>
+      <label><input type="radio" name="q" value="p50"> p50</label>
+      <label><input type="radio" name="q" value="p95"> p95</label>
+      <label><input type="radio" name="q" value="p99" checked> p99</label>
+    </fieldset>
+    <fieldset><legend>Latency</legend>
+      <label><input type="radio" name="lat" value="response" checked> response time</label>
+      <label><input type="radio" name="lat" value="service"> service time</label>
+    </fieldset>
+    <fieldset><legend>Show</legend>
+      <label><input type="checkbox" name="inflight"> in flight (right axis)</label>
+      <label><input type="checkbox" name="log"> log scale</label>
+      <button type="button" id="timeline-reset">Reset zoom</button>
+    </fieldset>
+  </form>
+  <div class="chart" id="timeline-chart" role="img" aria-label="Latency of every runner over the run, with incidents shaded. The same data is available as a table below."></div>
+  <noscript><p>The charts need JavaScript. Every figure they show is also in the tables of this report.</p></noscript>
+  <ul class="legend-bands" aria-label="Shaded regions">
+    <li><span class="swatch warmup"></span>warm-up</li>
+    <li><span class="swatch ramp"></span>ramp</li>
+    <li><span class="swatch incident"></span>incident</li>
+  </ul>
+  <details id="timeline-table">
+    <summary>The timeline as a table</summary>
+    <div class="table-wrap" id="timeline-table-body"></div>
+  </details>
+</section>
+
+<section id="runners" aria-labelledby="runners-h">
+  <h2 id="runners-h">Runners</h2>
+  <p><strong>Response time</strong> is measured from when a request should have been sent, so a stalled generator cannot hide latency; SLOs are judged on it. <strong>Service time</strong> is from when it was actually sent, and is what tier attribution uses. <strong>Client wait</strong> is the difference: time spent waiting on TracePoint itself.</p>
+  {{range .R.Runners}}
+  <article class="runner" aria-labelledby="runner-{{.Name}}">
+    <h3 id="runner-{{.Name}}">{{.Name}} <small>{{.Kind}}{{if .Driver}}, {{.Driver}}{{end}}</small></h3>
+    <dl class="facts">
+      <div><dt>Operations</dt><dd>{{.Summary.N}}</dd></div>
+      <div><dt>Errors</dt><dd>{{.Summary.ErrorsTotal}} ({{pct .Summary.ErrorRatio}})</dd></div>
+      <div><dt>Achieved</dt><dd>{{num .Summary.AchievedRPS}}/s</dd></div>
+      {{with .Executor}}
+      <div><dt>Offered</dt><dd>{{.Offered}}</dd></div>
+      <div><dt>Dropped</dt><dd>{{.Dropped}} ({{pct .DroppedRatio}})</dd></div>
+      <div><dt>Peak in flight</dt><dd>{{.PeakInFlight}}{{if .MaxInFlight}} of {{.MaxInFlight}}{{end}}</dd></div>
+      <div><dt>Dispatch lag p99</dt><dd>{{ms .DispatchLagMS.P99}}</dd></div>
+      {{end}}
+      {{range .Targets}}<div><dt>Target</dt><dd>{{.Host}}{{if .Scope}} <small>({{.Scope}})</small>{{end}}</dd></div>{{end}}
+    </dl>
+    <div class="table-wrap"><table>
+      <caption>{{.Name}} latency, measured window</caption>
+      <thead><tr><th scope="col">Latency</th><th scope="col" class="num">p50</th><th scope="col" class="num">p90</th><th scope="col" class="num">p95</th><th scope="col" class="num">p99</th><th scope="col" class="num">p99.9</th><th scope="col" class="num">max</th><th scope="col" class="num">mean</th></tr></thead>
+      <tbody>
+        {{template "qrow" (row "response" .Summary.Response)}}
+        {{template "qrow" (row "service" .Summary.Service)}}
+        {{template "qrow" (row "client wait" .Summary.ClientWait)}}
+      </tbody>
+    </table></div>
+    {{if .Summary.Errors}}
+    <div class="table-wrap"><table>
+      <caption>{{.Name}} errors by class</caption>
+      <thead><tr><th scope="col">Class</th><th scope="col" class="num">Count</th></tr></thead>
+      <tbody>{{range counts .Summary.Errors}}<tr><td><code>{{.Key}}</code></td><td class="num">{{.N}}</td></tr>{{end}}</tbody>
+    </table></div>
+    {{end}}
+    {{with .HTTP}}
+    {{if .StatusHistogram}}
+    <div class="table-wrap"><table>
+      <caption>HTTP status codes</caption>
+      <thead><tr><th scope="col">Status</th><th scope="col" class="num">Count</th></tr></thead>
+      <tbody>{{range $k, $v := .StatusHistogram}}<tr><td>{{$k}}</td><td class="num">{{$v}}</td></tr>{{end}}</tbody>
+    </table></div>
+    {{end}}
+    {{if .PhasesMS}}
+    <div class="table-wrap"><table>
+      <caption>HTTP phase breakdown (connection reuse {{pct .ConnReuseRatio}})</caption>
+      <thead><tr><th scope="col">Phase</th><th scope="col" class="num">p50</th><th scope="col" class="num">p90</th><th scope="col" class="num">p95</th><th scope="col" class="num">p99</th><th scope="col" class="num">p99.9</th><th scope="col" class="num">max</th><th scope="col" class="num">mean</th></tr></thead>
+      <tbody>{{range $k, $v := .PhasesMS}}{{template "qrow" (row $k $v)}}{{end}}</tbody>
+    </table></div>
+    {{end}}
+    {{end}}
+    {{with .SQL}}<p class="detail">SQL: {{.Reads}} reads, {{.Writes}} writes{{with .Pool}}; pool peak {{.PeakInUse}}{{if .MaxOpen}} of {{.MaxOpen}}{{end}}, {{.WaitCount}} waits totalling {{ms .WaitMSTotal}} (generator-side, not database latency){{end}}.</p>{{end}}
+    {{with .Redis}}<p class="detail">Redis: {{.Reads}} reads, {{.Writes}} writes{{with .Pool}}; pool size {{.Size}}, {{.Timeouts}} pool timeouts (generator-side){{end}}.</p>{{end}}
+    {{if .LabelSummaries}}
+    <div class="table-wrap"><table>
+      <caption>{{.Name}} by label</caption>
+      <thead><tr><th scope="col">Label</th><th scope="col" class="num">Operations</th><th scope="col" class="num">Errors</th><th scope="col" class="num">p50</th><th scope="col" class="num">p95</th><th scope="col" class="num">p99</th><th scope="col">Error classes</th></tr></thead>
+      <tbody>{{range $k, $v := .LabelSummaries}}<tr><th scope="row">{{$k}}</th><td class="num">{{$v.N}}</td><td class="num">{{pct $v.ErrorRatio}}</td><td class="num">{{ms $v.Response.P50}}</td><td class="num">{{ms $v.Response.P95}}</td><td class="num">{{ms $v.Response.P99}}</td><td>{{range counts $v.Errors}}<code>{{.Key}}</code> {{.N}} {{end}}</td></tr>{{end}}</tbody>
+    </table></div>
+    {{end}}
+  </article>
+  {{end}}
+</section>
+
+{{if .R.Analysis.Correlation}}
+<section id="correlation" aria-labelledby="correlation-h">
+  <h2 id="correlation-h">Whole-run correlation</h2>
+  <p>Spearman rank correlation between the application's p99 and each storage probe's, at lags of up to three buckets. A positive best lag means the storage tier moved first.</p>
+  <div class="table-wrap"><table>
+    <caption>How closely each storage tier tracked the application</caption>
+    <thead><tr><th scope="col">Storage</th><th scope="col" class="num">ρ</th><th scope="col" class="num">Best lag (buckets)</th><th scope="col" class="num">Buckets</th><th scope="col">Lean</th></tr></thead>
+    <tbody>{{range .R.Analysis.Correlation}}<tr><td>{{.Storage}}</td><td class="num">{{printf "%.2f" .Rho}}</td><td class="num">{{.BestLag}}</td><td class="num">{{.NBuckets}}</td><td>{{.Lean}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{end}}
+
+{{with .R.Telemetry}}
+<section id="telemetry" aria-labelledby="telemetry-h">
+  <h2 id="telemetry-h">Telemetry</h2>
+  <p>Server-side and generator-side health sampled on the run's clock. It corroborates what the latencies suggest; on its own it proves nothing.</p>
+  {{range $.Samplers}}
+  <article class="panel">
+    <h3>{{.Name}}</h3>
+    {{if .Available}}
+    <label class="select">Metric <select class="metric" data-source="{{.Name}}" aria-label="{{.Name}} metric"></select></label>
+    <div class="chart small" data-telemetry="{{.Name}}" role="img" aria-label="{{.Name}} telemetry over the run"></div>
+    {{if .Statements}}
+    <div class="table-wrap"><table>
+      <caption>{{.Name}} statements</caption>
+      <thead><tr>{{range .StatementKeys}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
+      <tbody>{{range .Statements}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody>
+    </table></div>
+    {{end}}
+    {{else}}<p>Unavailable{{if .Reason}}: {{.Reason}}{{end}}.</p>{{end}}
+  </article>
+  {{end}}
+</section>
+{{end}}
+
+{{with .R.Capacity}}
+<section id="capacity" aria-labelledby="capacity-h">
+  <h2 id="capacity-h">Capacity</h2>
+  <p>Knob: <strong>{{.Knob}}</strong>{{if .Runner}} on {{.Runner}}{{end}}.{{with .Boundary}} {{if .Stable}}The boundary lies between {{num .LastOK}} (last level that held) and {{num .FirstBroken}} (first that broke), and re-running both reproduced it.{{else}}The boundary was unstable on re-running; it lies somewhere in {{range $i, $v := .Range}}{{if $i}}–{{end}}{{num $v}}{{end}}.{{end}}{{end}}{{if .Knee}} Knee at {{num (deref .Knee)}}.{{end}}</p>
+  <div class="chart" id="capacity-chart" role="img" aria-label="p99 and throughput at each level of the capacity search"></div>
+  <div class="table-wrap"><table>
+    <caption>Levels tried</caption>
+    <thead><tr><th scope="col" class="num">Level</th><th scope="col">Phase</th><th scope="col" class="num">{{.Knob}}</th><th scope="col">Result</th><th scope="col" class="num">Offered/s</th><th scope="col" class="num">Achieved/s</th><th scope="col" class="num">p99</th><th scope="col" class="num">Errors</th><th scope="col">Culprit</th></tr></thead>
+    <tbody>{{range .Levels}}<tr><td class="num">{{.Level}}</td><td>{{.Phase}}</td><td class="num">{{num .Value}}</td><td class="{{if .OK}}ok{{else}}bad{{end}}">{{if .OK}}held{{else}}broke{{if .BreakReason}}: {{.BreakReason}}{{end}}{{end}}</td><td class="num">{{num .OfferedRPS}}</td><td class="num">{{num .AchievedRPS}}</td><td class="num">{{ms .P99MS}}</td><td class="num">{{pct .ErrorRatio}}</td><td>{{with .Culprit}}{{deref .}}{{else}}—{{end}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{with .USL}}
+  {{if .Fitted}}<p>Universal Scalability Law fit: σ = {{printf "%.4f" .Sigma}}, κ = {{printf "%.5f" .Kappa}}, R² = {{printf "%.3f" .R2}}; predicted peak at N* ≈ {{num .PeakN}} ({{num .PeakThroughput}}/s).</p>
+  {{else}}<p>No Universal Scalability Law fit is shown{{if .Reason}}: {{.Reason}}{{end}}.</p>{{end}}
+  {{end}}
+</section>
+{{end}}
+
+<section id="methodology" aria-labelledby="methodology-h">
+  <h2 id="methodology-h">Methodology and caveats</h2>
+  <ul>
+    <li>Latency is recorded into mergeable sketches per bucket; percentiles are read from merged sketches and never averaged. A bucket with fewer than {{.R.Run.MinSamples}} samples reports no percentile.</li>
+    <li>A bucket is hot when its p99 service time exceeds the runner's threshold, or when it stands out sharply from the previous steady buckets (modified z-score above 3.5, at least three times the median and 5ms above it).</li>
+    <li>Hot buckets merge into incidents across runners; a correlated incident names the tier that got hot first and hardest, corroborated by telemetry where available.</li>
+    <li>{{.StandingCaveat}} A storage probe measures the tier directly while the application is under load; its latency moving with the application's is association on a shared clock.</li>
+    {{if .SameHost}}<li>The generator and at least one target share a host, so they competed for the same CPU and network; this run is degraded for that reason.</li>{{end}}
+  </ul>
+  {{if .R.Analysis.Thresholds}}
+  <div class="table-wrap"><table>
+    <caption>Hot-bucket thresholds</caption>
+    <thead><tr><th scope="col">Runner</th><th scope="col" class="num">Threshold</th><th scope="col">From</th></tr></thead>
+    <tbody>{{range $k, $v := .R.Analysis.Thresholds}}<tr><td>{{$k}}</td><td class="num">{{ms $v.ThresholdMS}}</td><td>{{$v.Source}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{end}}
+  <p>Every rule and constant is in <code>docs/METHODOLOGY.md</code> in the TracePoint repository.</p>
+</section>
+
+<section id="about" aria-labelledby="about-h">
+  <h2 id="about-h">Files and export</h2>
+  {{with .R.Artifacts}}
+  <dl class="paths">
+    {{if .RunDir}}<div><dt>Run directory</dt><dd><code>{{.RunDir}}</code></dd></div>{{end}}
+    {{if .Result}}<div><dt>Result</dt><dd><code>{{.Result}}</code></dd></div>{{end}}
+    {{if .Digest}}<div><dt>Digest</dt><dd><code>{{.Digest}}</code></dd></div>{{end}}
+    {{if .Events}}<div><dt>Events</dt><dd><code>{{.Events}}</code></dd></div>{{end}}
+    {{if .Config}}<div><dt>Configuration</dt><dd><code>{{.Config}}</code></dd></div>{{end}}
+  </dl>
+  {{end}}
+  {{if .Full}}
+  <p><button type="button" id="export">Export result.json</button> <small>The full result is embedded in this file ({{bytes .FullBytes}}).</small></p>
+  {{else}}
+  <p class="callout">The full result is {{bytes .FullBytes}}, above the {{bytes .EmbedLimit}} this report embeds, so only the display data is here. The complete document is {{if .ResultPath}}<code>{{.ResultPath}}</code>{{else}}the run's <code>result.json</code>{{end}}.</p>
+  {{end}}
+  <p class="small">TracePoint {{.R.Tool.Version}}{{if .R.Tool.Commit}} ({{.R.Tool.Commit}}){{end}}, result schema {{.R.SchemaVersion}}. This file makes no network requests.</p>
+  <details>
+    <summary>Third-party notices</summary>
+    <p>Charts are drawn with uPlot 1.6.32, embedded unmodified under the MIT licence:</p>
+    <pre class="license">{{.License}}</pre>
+  </details>
+</section>
+
+</main>
+
+<script type="application/json" id="tp-view">{{.View}}</script>
+{{if .Full}}<script type="application/json" id="tp-result">{{.Full}}</script>{{end}}
+<script>{{.LocaleJS}}</script>
+<script>{{.UplotJS}}</script>
+<script>{{.AppJS}}</script>
+</body>
+</html>
+{{define "qrow"}}<tr><th scope="row">{{.Name}}</th><td class="num">{{ms .Q.P50}}</td><td class="num">{{ms .Q.P90}}</td><td class="num">{{ms .Q.P95}}</td><td class="num">{{ms .Q.P99}}</td><td class="num">{{ms .Q.P999}}</td><td class="num">{{ms .Q.Max}}</td><td class="num">{{ms .Q.Mean}}</td></tr>{{end}}

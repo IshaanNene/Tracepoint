@@ -9,10 +9,10 @@ package cli
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/IshaanNene/Tracepoint/internal/render"
 	"github.com/IshaanNene/Tracepoint/internal/result"
 )
 
@@ -92,7 +92,7 @@ func writeHeader(b *strings.Builder, p painter, r *result.Result) {
 		elapsed = r.Run.DurationMS
 	}
 	detail := fmt.Sprintf("%s over %s · %d bucket(s) of %s · seed %d",
-		r.Run.Status, humanMS(elapsed), r.Run.BucketCount, humanMS(r.Run.BucketMS), r.Run.Seed)
+		r.Run.Status, render.MS(elapsed), r.Run.BucketCount, render.MS(r.Run.BucketMS), r.Run.Seed)
 	if r.Run.InterruptedReason != "" {
 		detail += " · " + r.Run.InterruptedReason
 	}
@@ -156,7 +156,7 @@ func formatBudget(metric string, v float64) string {
 	if metric == "error_rate" {
 		return fmt.Sprintf("%.2f%%", v*100)
 	}
-	return humanMS(v)
+	return render.MS(v)
 }
 
 func writeRunners(b *strings.Builder, p painter, r *result.Result) {
@@ -168,10 +168,10 @@ func writeRunners(b *strings.Builder, p painter, r *result.Result) {
 			strconv.FormatInt(rn.Summary.N, 10),
 			fmt.Sprintf("%.1f", rn.Summary.AchievedRPS),
 			fmt.Sprintf("%.2f%%", rn.Summary.ErrorRatio*100),
-			humanMS(rn.Summary.Response.P50),
-			humanMS(rn.Summary.Response.P95),
-			humanMS(rn.Summary.Response.P99),
-			humanMS(rn.Summary.Response.Max),
+			render.MS(rn.Summary.Response.P50),
+			render.MS(rn.Summary.Response.P95),
+			render.MS(rn.Summary.Response.P99),
+			render.MS(rn.Summary.Response.Max),
 		})
 	}
 	writeTable(b, p, rows, "  ")
@@ -191,7 +191,7 @@ func writeRunners(b *strings.Builder, p painter, r *result.Result) {
 			// reader sees a large p99 and blames the wrong thing.
 			fmt.Fprintf(b, "  %s\n", p.paint(yellow, fmt.Sprintf(
 				"%.0f%% of %s p99 (%s) was waiting inside the generator; %s itself took %s",
-				share*100, rn.Name, humanMS(rn.Summary.Response.P99), rn.Name, humanMS(rn.Summary.Service.P99))))
+				share*100, rn.Name, render.MS(rn.Summary.Response.P99), rn.Name, render.MS(rn.Summary.Service.P99))))
 		}
 	}
 
@@ -241,7 +241,7 @@ func writeLabels(b *strings.Builder, p painter, r *result.Result) {
 				name, strconv.FormatInt(s.N, 10),
 				fmt.Sprintf("%.1f", s.AchievedRPS),
 				fmt.Sprintf("%.2f%%", s.ErrorRatio*100),
-				humanMS(s.Response.P50), humanMS(s.Response.P95), humanMS(s.Response.P99),
+				render.MS(s.Response.P50), render.MS(s.Response.P95), render.MS(s.Response.P99),
 			})
 		}
 		writeTable(b, p, rows, "  ")
@@ -280,11 +280,11 @@ func writeIncidents(b *strings.Builder, p painter, r *result.Result) {
 			}
 			appP99 := "-"
 			if inc.AppImpact != nil && inc.AppImpact.PeakP99MS > 0 {
-				appP99 = humanMS(inc.AppImpact.PeakP99MS)
+				appP99 = render.MS(inc.AppImpact.PeakP99MS)
 			}
 			rows = append(rows, []string{
 				inc.ID, inc.Class,
-				fmt.Sprintf("%s-%s", humanS(inc.StartS), humanS(inc.EndS)),
+				fmt.Sprintf("%s-%s", render.Seconds(inc.StartS), render.Seconds(inc.EndS)),
 				strings.Join(hot, ","), culprit, appP99,
 			})
 		}
@@ -295,7 +295,7 @@ func writeIncidents(b *strings.Builder, p painter, r *result.Result) {
 		for _, inc := range a.Incidents[:min(len(a.Incidents), maxIncidentRows)] {
 			for _, s := range inc.Telemetry {
 				fmt.Fprintf(b, "    %s %s: %s %s %s -> %s\n", p.paint(dim, "·"), inc.ID,
-					s.Source, s.Signal, trimNumber(s.Baseline), trimNumber(s.Value))
+					s.Source, s.Signal, render.Number(s.Baseline), render.Number(s.Value))
 			}
 		}
 		b.WriteString("\n")
@@ -308,21 +308,6 @@ func writeIncidents(b *strings.Builder, p painter, r *result.Result) {
 		}
 		fmt.Fprintf(b, "  %s %s\n\n", p.paint(bold, pad("TRACKING", labelWidth)), p.paint(dim, strings.Join(parts, " · ")))
 	}
-}
-
-// humanS renders an offset in seconds.
-func humanS(v float64) string {
-	if v == float64(int64(v)) {
-		return fmt.Sprintf("%ds", int64(v))
-	}
-	return fmt.Sprintf("%.1fs", v)
-}
-
-func trimNumber(v float64) string {
-	if v == float64(int64(v)) {
-		return strconv.FormatInt(int64(v), 10)
-	}
-	return strconv.FormatFloat(v, 'g', 3, 64)
 }
 
 func writeVerdict(b *strings.Builder, p painter, r *result.Result, opts Options) {
@@ -369,21 +354,10 @@ func writeArtifacts(b *strings.Builder, p painter, r *result.Result) {
 }
 
 func formatErrors(m map[string]int64) string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	// Worst first, then alphabetically, so the output is stable and the important
-	// class leads.
-	sort.Slice(keys, func(i, j int) bool {
-		if m[keys[i]] != m[keys[j]] {
-			return m[keys[i]] > m[keys[j]]
-		}
-		return keys[i] < keys[j]
-	})
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s %d", k, m[k]))
+	counts := render.SortedCounts(m)
+	parts := make([]string, 0, len(counts))
+	for _, c := range counts {
+		parts = append(parts, fmt.Sprintf("%s %d", c.Key, c.N))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -427,25 +401,6 @@ func pad(s string, w int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", w-len(s))
-}
-
-// humanMS renders a millisecond figure at a resolution a reader can act on: more
-// precision on small numbers, less on large ones.
-func humanMS(v float64) string {
-	switch {
-	case v == 0:
-		return "0"
-	case v < 1:
-		return fmt.Sprintf("%.2fms", v)
-	case v < 10:
-		return fmt.Sprintf("%.1fms", v)
-	case v < 1000:
-		return fmt.Sprintf("%.0fms", v)
-	case v < 60_000:
-		return fmt.Sprintf("%.1fs", v/1000)
-	default:
-		return fmt.Sprintf("%.1fm", v/60_000)
-	}
 }
 
 // wrap breaks prose to a width, indenting continuation lines.

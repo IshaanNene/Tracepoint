@@ -42,6 +42,11 @@ Run a single test: `go test -race -run TestName ./internal/schedule/`.
 start one with `dockerd &`. `make check` never needs Docker. `govulncheck` needs to
 reach `vuln.go.dev`. The known-answer suite takes about five minutes.
 
+The HTML report has a real-browser test (`TestInABrowser` in `internal/render/html`):
+it runs headless Chromium - found under `/opt/pw-browsers`, on `PATH`, or at
+`$TRACEPOINT_CHROMIUM` - and skips when there is none. Golden files are rewritten
+with `go test ./<pkg>/ -update`; review the diff before committing it.
+
 ## Layout
 
 `cmd/tracepoint` is wiring only. The public Go API is at the module root

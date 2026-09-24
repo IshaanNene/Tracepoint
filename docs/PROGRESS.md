@@ -12,11 +12,132 @@
 | 1 | Engine slice: clock, schedule, sketches, recorder, arrival-rate executor, HTTP runner, `result.json` v1, CLI table, JSON output, exit codes | Complete, approved |
 | 2 | Storage and safety: SQL and Redis runners, templates, `--set`, policy, guards, redaction, preflight, `doctor`, `--dry-run` | Complete, approved |
 | 3 | Analysis: telemetry samplers, incidents, culprits, correlation, verdicts, validity, digest; faultbox and the known-answer suite | Complete, approved |
-| 4 | Agent interfaces: run store, detach, events, audit log, ops registry, `capabilities`, MCP, REST, parity tests | **Complete — awaiting approval** |
-| 5 | Human interfaces: HTML, Markdown, JUnit, `report`, TUI | Not started |
+| 4 | Agent interfaces: run store, detach, events, audit log, ops registry, `capabilities`, MCP, REST, parity tests | Complete, approved |
+| 5 | Human interfaces: HTML, Markdown, JUnit, `report`, TUI | **Complete — awaiting approval** |
 | 6 | Journeys and onboarding: vus executor, extract/expect, feeders, think time, cookies, strain finder, `quick`, `init` | Not started |
 | 7 | Capacity and compare: auto-ramp, USL, confidence intervals, gates, incident diff | Not started |
 | 8 | Integration and release: Go facade, `tracepointtest`, Action, Docker, skill, contract CI, fuzzing, soak, GoReleaser, agent dogfood | Not started |
+
+## Phase 5 — complete
+
+A person now gets what an agent already had: every run writes a single-file HTML
+report that opens offline, a Markdown summary and JUnit XML are one command away, and
+a terminal shows the run live. Every one of them is a pure function of `result.json`,
+so `tracepoint report` reproduces what a run wrote, byte for byte.
+
+### Delivered
+
+| Deliverable | Where | Evidence |
+| --- | --- | --- |
+| HTML report: one file, uPlot 1.6.32 vendored with `go:embed` (licence and provenance beside it, and inside the report), display data in a JSON script block, CSP `default-src 'none'` with script and style hashes computed from the bytes written | `internal/render/html` | `TestCSPCoversExactlyTheInlineContent`: the policy's hashes equal the inline content's, no inline handlers or style attributes; `TestVendoredAssetsArePinned` |
+| Sections: validity and SLO badges, invalid-run warning, verdict with evidence and next steps, validity findings and SLO checks, incidents with zoom-to-timeline, shared timeline, per-runner and per-label tables, error classes, status histogram, HTTP phases, pool detail, correlation, telemetry panels with statements, capacity (levels, boundary, USL, chart), methodology and thresholds, files, export, third-party notices | `assets/report.tmpl` | Screenshots reviewed in light and dark; every section present in `TestInABrowser`'s fixture |
+| Timeline: p50/p95/p99 and response/service toggles, in-flight on a right axis, log scale, reset zoom; warm-up, ramps and incidents shaded; thin buckets as hollow points apart from the line; the timeline as a table for keyboard and screen-reader users | `assets/report.js`, `view.go` | `TestBandsAndGaps` |
+| Max-preserving thinning to at most 2,000 points per series, display only | `downsample.go` | Written test-first; a rapid property test (at most the limit, x increasing, the global maximum exact); `TestLongRunsAreThinnedForDisplayOnly` (a one-bucket spike of 777ms survives 5,000 buckets) |
+| Above 5 MB, display data only, and the report says where `result.json` is | `html.go` | `TestLargeResultEmbedsDisplayDataOnly` |
+| Offline: nothing that can fetch | | `TestNoExternalReferences`: no loading tags, no attribute pointing outside the page, no CSS `url()`/`@import`, no network APIs in any script |
+| The XSS string renders inert | | `TestHostileStringsRenderInert` (escaped as text, script elements balanced, JSON blocks intact); `TestInABrowser` (no `<img>` in the live DOM) |
+| A real browser runs it | | `TestInABrowser`: headless Chromium loads the report; every script runs under the policy, the four charts draw, and the console is silent - so no request was even attempted, since `default-src 'none'` logs any it refuses. Shown to catch a wrong hash |
+| Colourblind-safe (Okabe-Ito) palette, dark mode, focus rings, skip link, captions and scoped headers, print styles | `assets/report.css` | Reviewed in both themes |
+| Markdown for PR comments and job summaries | `internal/render/markdown` | Golden files; `TestHostileTextIsLiteral` (no markup, links, HTML or @mentions survive) |
+| JUnit XML whose failures mirror the exit codes | `internal/render/junit` | Golden file; `TestOutcomesMirrorExitCodes`; `TestHostileTextStaysWellFormed` |
+| `tracepoint report <run>` (html, markdown, junit; `--out`; `--output json`) | `internal/cli/report.go` | `TestRunWritesItsDirectory`: the command re-renders `report.html` byte for byte; markdown to stdout; junit with `--output json`; refusals |
+| `render_report` operation (markdown or junit inline, html by path) | `internal/ops/report.go` | `TestAgentLoop`; the parity test; MCP and OpenAPI golden files |
+| Every run writes `report.html`; `--report-path` | `internal/session` | `TestRunWritesItsDirectory`; the secret scan now reads every file in the run directory |
+| Live view at a terminal; one progress line every 5s elsewhere; `--no-live` | `internal/live`, `internal/cli/progress.go` | `internal/live` model and driver tests; `TestLiveViewAtATerminal`; `TestPlainProgress`; run by hand on a real pseudo-terminal |
+| Result schema 1.1: `executor.start_target` | `internal/result`, schema | `TestRampRecordsItsStart`; additive, so a minor bump |
+
+### Evidence
+
+```
+$ make check
+  fmt, vet, golangci-lint (0 issues), race tests, contract checks: all pass
+  govulncheck: could not run - vuln.go.dev is not reachable from this environment (CI runs it)
+$ make integration                 # exit 0
+$ make e2e                         # FAILS in this environment - see "The clean run and vCPU stalls" below
+  TestKnownAnswers/clean_run_has_no_incidents fails in 3 runs of 5 at this commit
+  - and in 4 of 5 at the phase 3 commit (5ecc6d6), run back to back on the same host
+coverage: render 100%  render/cli 92.6%  render/html 91.7%  render/markdown 92.2%
+          render/junit 88.7%  render/report 89.5%  live 89.0%
+```
+
+### Bugs found, and fixed
+
+| Found by | Bug | Fix |
+| --- | --- | --- |
+| Watching the live view on a real terminal | Progress reported nothing done until a short run ended: `Done` came from sealed buckets, which trail the run by the operation timeout (10s by default) | `Done` is dispatched minus in flight; errors and p99 stay sealed-only, and the view says they trail |
+| Writing the `--report-path` test | A detached run ignored `--result-path`: the hand-off to the child never carried it | Both copies travel in the hand-off as absolute paths; the test fails without them |
+| The browser test | A Linux locale of C or POSIX surfaces as `en-US@posix`, which `Intl` rejects, so uPlot threw at load and no chart drew | A preamble falls back to `en-US` only when `Intl` rejects the browser's tag |
+| The race detector | The "starting" log line reached stderr after the live view had started drawing there | The view takes the log over the moment it starts |
+| Self-review against ADR-002 | Thin buckets were gaps; ADR-002 says they are drawn, but never trusted | A points-only series per runner, apart from the line |
+
+### The clean run and vCPU stalls - a decision needed
+
+The known-answer suite passed twice at the end of phase 3. On this host it now fails
+most runs of the clean scenario, **at the phase 3 commit as well as this one**, so it
+is not a regression from phases 4 or 5. The cause, from the failing runs' own
+generator telemetry: in one bucket, every runner's dispatch lag jumps together from
+about 1ms to 14-24ms while GC pauses stay under 0.4ms, Go scheduler latency under
+0.4ms and CPU near 5%. That is the whole process - once, the target too - being
+paused, not the target slowing. The host is a Firecracker microVM, and `/proc/stat`
+shows steal time: 0.54s stolen from the vCPUs during a single 45s run.
+
+TracePoint reports it faithfully. The stall is 3x and over 5ms above the baseline, so
+the spec's relative rule makes the bucket hot. Client wait dominates, so the incident
+is `client_limited` and the verdict blames the generator, which is true. But the
+spec also says a clean run has zero incidents. One failing run also showed a real
+weakness: a one-bucket Redis blip during the handler-delay fault joined the app's
+incident and was named culprit, although it went hot four buckets after the
+application at 0.2x its threshold (score -6).
+
+Options, none taken without approval:
+
+1. **Detect generator stalls and keep them out of incidents.** When dispatch lag
+   rises on every runner in the same bucket, mark the bucket stalled: it cannot be
+   hot, and a `GENERATOR_STALL` finding degrades validity instead. Keeps the spec's
+   intent (a clean target yields no incidents, and the run says it was disturbed);
+   adds a rule and a code. My recommendation.
+2. **Require two buckets for a relative-only hot streak.** Simple; stops one-bucket
+   blips everywhere, but also delays detecting a real short spike by a bucket, and
+   departs from §5.5 as written.
+3. **Accept a one-bucket `client_limited` incident in the clean scenario.** Changes
+   only the test; the product then reports every host hiccup as an incident.
+4. **Run the suite only on dedicated hosts.** Changes nothing; CI on shared runners
+   would stay flaky.
+
+Separately, whatever is chosen: a culprit that went hot after the application and
+below its threshold should not be named (a negative score means the evidence points
+away from it); the incident should be reported without a culprit. That is a small,
+test-first change to `internal/analysis`, also awaiting approval.
+
+Fixed now, because it is plainly a bug: since phase 4 every run writes a directory,
+and the suite wrote them into `tools/faultbox/runs/` in the source tree. It now uses
+the scenario's temporary directory. A failing scenario also logs the generator's
+telemetry around each incident, which is how this cause was found.
+
+### Deviations from the spec, and judgements it left open
+
+| Item | Reason |
+| --- | --- |
+| uPlot is the chart library | The spec says "vendored" without naming one. ~50 KB, time-series native, canvas, CSP-compatible, MIT (ADR-007) |
+| The CSP also sets `base-uri 'none'` and `form-action 'none'` | Stricter than the spec's minimum; the report needs neither |
+| Charts need JavaScript; every figure they show is also in a table | The spec's sections are served without script; the charts cannot be |
+| The timeline shows one quantile at a time, chosen by a toggle | Three quantiles for three runners is nine lines on one chart |
+| Markdown escapes aggressively (`\.`, `\:` and so on), and puts a zero-width space after `@` | The raw text is noisier, but it renders clean, and a hostile target cannot format, autolink or mention anyone in a pull request |
+| JUnit: incidents and the verdict are context in `system-out`, not test cases | They do not fail a run by themselves; the test cases mirror the exit codes |
+| The live view's errors, rps and p99 trail by the operation timeout | A bucket seals only when no operation that belongs to it can still complete, which is what makes its figures final; showing unsealed figures would show numbers that later change. The view says so |
+| The live view takes no keyboard input | So ctrl+c stays a signal with its existing meaning, graceful then immediate, rather than a key event the view would have to reinterpret |
+| `render_report` returns html by path only | The report is for a person; putting 200 KB of HTML into a model's context helps no one |
+| Result schema 1.0 → 1.1 | `start_target`, needed to tell a ramp from a hold; additive |
+
+### Risks carried into phase 6
+
+| Risk | Mitigation |
+| --- | --- |
+| The browser test skips where no Chromium is installed | The structural tests hold everywhere; CI installs Chromium for it (phase 8) |
+| uPlot is one maintainer's library | It is vendored and pinned; the report does not depend on its future |
+| Bubble Tea v1 while v2 exists | v1 is stable and does what is needed; the view is small, and its model is independent of the terminal library's driver |
+| Charts are drawn on canvas, which screen readers cannot read | Every chart has a label and a table equivalent |
+| `make e2e` is red on this host | Diagnosed above; awaiting a decision between the options |
 
 ## Phase 4 — complete
 

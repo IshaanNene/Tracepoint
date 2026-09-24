@@ -17,6 +17,15 @@ before it is removed in the next major.
 
 ### Added
 
+- Phase 5: human interfaces. Every run writes `report.html`: one file that opens
+  offline, with a strict Content-Security-Policy, the verdict, incidents, a shared
+  timeline with quantile and response/service toggles and shaded warm-up, ramps and
+  incidents, per-runner tables, telemetry and capacity panels, dark mode and a
+  colourblind-safe palette. `tracepoint report` renders any run as HTML, Markdown (for
+  pull requests and job summaries) or JUnit XML; `render_report` does the same over
+  MCP and REST; `--report-path` keeps a copy. At a terminal a live view shows progress,
+  per-runner throughput, sealed p99 and its trend; elsewhere one progress line every
+  five seconds, and `--no-live` opts out.
 - Phase 4: agent interfaces. Every run gets a directory in the run store with its
   state, events, result, digest, effective configuration and log; `run --detach`
   returns once preflight passes, and `status`, `wait`, `stop`, `list` and `gc` manage
@@ -55,11 +64,15 @@ before it is removed in the next major.
 
 ### Fixed
 
+- A detached run ignored `--result-path`.
 - The SQL and Redis runners counted reads and writes with a data race between
   workers, found by the known-answer suite.
 
 ### Changed
 
+- Result schema 1.1: `executor.start_target` records where a load profile starts.
+- Progress counts completed operations as they complete, rather than once their
+  bucket seals.
 - A degraded run caps verdict confidence at medium rather than forcing it to low: a
   degraded run is usable with its caveat attached, and every loopback run is degraded.
 - The minimum Go toolchain is 1.26.6, the first release with no `govulncheck` findings

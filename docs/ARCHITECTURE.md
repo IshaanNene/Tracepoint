@@ -104,7 +104,8 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `internal/adapters/{mcp,rest}` | Protocol plumbing, no logic |
 | `internal/adapters/guard` | The HTTP transports' shared protection: bearer token, Host allowlist, Origin refusal, no CORS, loopback-only binding (§6.5) |
 | `docs` (Go package) | Embeds `METHODOLOGY.md` and `ERRORS.md`, which the MCP server offers as resources |
-| `internal/render/{cli,html,markdown,junit}` | Pure functions of `result.json` |
+| `internal/render/{cli,html,markdown,junit}` | Pure functions of `result.json`. `render` itself holds the number formatting they share; `render/report` names the report formats and dispatches to them for `report` and `render_report` |
+| `internal/live` | The live terminal view: a pure Bubble Tea model and the driver that draws it on stderr |
 | `internal/detect` | Project detection and OpenAPI import |
 | `internal/schemas` | The JSON Schemas themselves. They live inside the package because `go:embed` cannot reach outside it, which is what guarantees the binary ships the contract it enforces |
 | `internal/buildinfo` | Version stamped at link time |

@@ -33,7 +33,7 @@ proves the toolchain rather than the module cache.
 | `tidwall/gjson` | JSON path extraction | Reads a path without unmarshalling the whole body — on the hot path, for every journey step | MIT |
 | `DataDog/sketches-go` | DDSketch | The reference implementation of the algorithm in ADR-002, with the relative-error guarantee we depend on | Apache-2.0 |
 | `google.golang.org/protobuf` | — (indirect) | Not chosen: `sketches-go`'s `ddsketch` package imports its own protobuf bindings, so this arrives transitively even though TracePoint uses the library's non-proto binary codec. Recorded here so nothing in `go.mod` is unexplained | BSD-3-Clause |
-| `charmbracelet/bubbletea` + `lipgloss` | Live terminal view | TTY-only, and the only dependency the core can run without | MIT |
+| `charmbracelet/bubbletea` + `lipgloss` | Live terminal view | TTY-only, and the only dependency the core can run without. Pinned at bubbletea v1.3.10 and lipgloss v1.1.0 (phase 5): v2 now lives at `charm.land/bubbletea/v2`, and moving is a later, deliberate change. `muesli/termenv`, already beneath lipgloss, is imported directly only to force a colourless profile when colour is off | MIT |
 | `modelcontextprotocol/go-sdk` | MCP server | The official SDK. Writing a protocol implementation by hand guarantees drift from a spec that is still moving | MIT, relicensing to Apache-2.0 (verified at v1.8.0: new contributions are Apache-2.0, older ones remain MIT; both permissive) |
 | `google/jsonschema-go` | Operation input and output schemas | Arrives with the MCP SDK, which uses it for tool schemas. Deriving each operation's schemas from its handler's Go types with it, and validating input against exactly the schema the agent was shown, is what keeps the three surfaces from drifting (added in phase 4) | MIT |
 | `santhosh-tekuri/jsonschema/v6` | JSON Schema validation in tests | Validates every emitted document against its own schema (§6.7). 2020-12 support; test-scope | Apache-2.0 |
@@ -56,7 +56,11 @@ merging).
 
 **Vendored, not imported**: the HTML report's chart library, embedded with `go:embed`
 and keeping its `LICENSE` file, because the report must work offline with zero network
-requests (ADR-006, threat 8).
+requests (ADR-006, threat 8). Chosen in phase 5: uPlot 1.6.32 (MIT) - about 50 KB,
+built for dense time series, draws on canvas, and styles through the CSSOM, so it runs
+under a CSP that allows no inline style attributes. Its provenance, integrity and
+SHA-256 are in `internal/render/html/assets/uplot/PROVENANCE.md`, and a test pins the
+hashes.
 
 ### Explicitly rejected
 

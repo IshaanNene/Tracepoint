@@ -39,14 +39,15 @@ input and output.
 
 ## Status
 
-**Phase 4 of 8 complete: the engine, the analysis and the agent interfaces work.**
-TracePoint runs HTTP, SQL (Postgres, MySQL, SQLite) and Redis load on one clock,
-samples the datastores' own telemetry, and reports incidents, a verdict with evidence
-and confidence, and a context-sized digest for agents. A known-answer suite injects
-faults into a demo application and checks that every verdict class comes out right.
-Agents can drive it end to end over MCP (`tracepoint mcp`), REST (`tracepoint serve`)
-or the shell, with runs that outlive a tool call. The HTML report, journeys, capacity
-search and `compare` are the phases still to come, and there is no release yet.
+**Phase 5 of 8 complete: the engine, the analysis, and both the agent and the human
+interfaces work.** TracePoint runs HTTP, SQL (Postgres, MySQL, SQLite) and Redis load
+on one clock, samples the datastores' own telemetry, and reports incidents, a verdict
+with evidence and confidence, and a context-sized digest for agents. A known-answer
+suite injects faults into a demo application and checks that every verdict class comes
+out right. Agents drive it over MCP, REST or the shell; people get a live terminal
+view and an offline HTML report for every run, with Markdown and JUnit one command
+away. Journeys, capacity search and `compare` are the phases still to come, and there
+is no release yet.
 
 | What exists | Where |
 | --- | --- |

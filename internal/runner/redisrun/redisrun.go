@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -43,7 +44,8 @@ type Runner struct {
 	shared   *template.Shared
 	timeout  time.Duration
 
-	reads, writes int64
+	// Workers record concurrently, so the tallies are atomic.
+	reads, writes atomic.Int64
 }
 
 // command is one compiled, weighted unit of work: a single command or a pipeline.
@@ -260,7 +262,7 @@ func (r *Runner) Labels() []string {
 }
 
 // Counts reports how many operations were reads and how many were writes.
-func (r *Runner) Counts() (reads, writes int64) { return r.reads, r.writes }
+func (r *Runner) Counts() (reads, writes int64) { return r.reads.Load(), r.writes.Load() }
 
 // PoolStats reports what the connection pool did. Timeouts here are generator-side.
 func (r *Runner) PoolStats() *redis.PoolStats { return r.client.PoolStats() }
@@ -320,9 +322,9 @@ func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recor
 		o.Class = metrics.ClassOK
 	}
 	if c.op == policy.OpWrite {
-		r.writes++
+		r.writes.Add(1)
 	} else {
-		r.reads++
+		r.reads.Add(1)
 	}
 	rec.Record(&o)
 	return nil

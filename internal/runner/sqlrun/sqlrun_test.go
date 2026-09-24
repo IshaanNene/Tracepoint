@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -192,6 +193,44 @@ func TestWritesAreCountedSeparately(t *testing.T) {
 	reads, writes := h.runner.Counts()
 	if writes != 10 || reads != 0 {
 		t.Errorf("reads=%d writes=%d, want 0/10", reads, writes)
+	}
+}
+
+// doConcurrently drives the runner from several goroutines at once, the way the
+// executor's workers do. Run under -race it is what catches shared state that a
+// sequential harness never exercises.
+func (h *harness) doConcurrently(t *testing.T, workers, each int) {
+	t.Helper()
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			rng := rand.New(rand.NewPCG(uint64(worker), 1)) //nolint:gosec // a test
+			for i := range each {
+				now := h.deps.Elapsed()
+				it := runner.Iteration{
+					Index: int64(worker*each + i), Worker: worker, Intended: now, Dispatched: now,
+					WorkerStart: now, Rand: rng,
+				}
+				if err := h.runner.Do(context.Background(), &it, h.collector); err != nil {
+					t.Errorf("Do: %v", err)
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	h.collector.Finish(time.Hour)
+}
+
+// The known-answer suite found the read and write tallies racing between workers.
+func TestConcurrentWorkersCountExactly(t *testing.T) {
+	t.Parallel()
+	cfg := sqliteConfig(newDB(t), config.Query{Name: "one", Type: "read", SQL: "SELECT 1"})
+	h := newHarness(t, cfg, "one")
+	h.doConcurrently(t, 8, 25)
+	if reads, writes := h.runner.Counts(); reads != 200 || writes != 0 {
+		t.Fatalf("reads=%d writes=%d, want 200/0", reads, writes)
 	}
 }
 

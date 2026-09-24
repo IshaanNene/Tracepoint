@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	// Drivers, registered by importing them. All three are pure Go, which is what lets
@@ -64,7 +65,8 @@ type Runner struct {
 	shared  *template.Shared
 	timeout time.Duration
 
-	reads, writes int64
+	// Workers record concurrently, so the tallies are atomic.
+	reads, writes atomic.Int64
 }
 
 // query is one compiled, weighted unit of work: a single statement or a transaction.
@@ -335,7 +337,7 @@ func (r *Runner) Labels() []string {
 func (r *Runner) Driver() string { return r.driver }
 
 // Counts reports how many operations were reads and how many were writes.
-func (r *Runner) Counts() (reads, writes int64) { return r.reads, r.writes }
+func (r *Runner) Counts() (reads, writes int64) { return r.reads.Load(), r.writes.Load() }
 
 // PoolStats reports what the connection pool did. Waits here are generator-side and
 // must not be read as database latency.
@@ -430,9 +432,9 @@ func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recor
 		o.Class = metrics.ClassOK
 	}
 	if q.op == policy.OpWrite {
-		r.writes++
+		r.writes.Add(1)
 	} else {
-		r.reads++
+		r.reads.Add(1)
 	}
 	rec.Record(&o)
 	return nil

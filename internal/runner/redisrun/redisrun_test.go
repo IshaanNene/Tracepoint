@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/rand/v2"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -113,6 +114,48 @@ func TestReadsAndWrites(t *testing.T) {
 	}
 	if reads+writes != 40 {
 		t.Errorf("reads+writes = %d, want 40", reads+writes)
+	}
+}
+
+// doConcurrently drives the runner from several goroutines at once, the way the
+// executor's workers do. Run under -race it is what catches shared state that a
+// sequential harness never exercises.
+func (h *harness) doConcurrently(t *testing.T, workers, each int) {
+	t.Helper()
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			rng := rand.New(rand.NewPCG(uint64(worker), 1)) //nolint:gosec // a test
+			for i := range each {
+				now := h.deps.Elapsed()
+				it := runner.Iteration{
+					Index: int64(worker*each + i), Worker: worker, Intended: now, Dispatched: now,
+					WorkerStart: now, Rand: rng,
+				}
+				if err := h.runner.Do(context.Background(), &it, h.collector); err != nil {
+					t.Errorf("Do: %v", err)
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	h.collector.Finish(time.Hour)
+}
+
+// The known-answer suite found the read and write tallies racing between workers.
+func TestConcurrentWorkersCountExactly(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, func(c *config.Redis) {
+		c.Commands = []config.Command{
+			{Name: "get", Cmd: []string{"GET", "k"}},
+			{Name: "set", Cmd: []string{"SET", "k", "v"}},
+		}
+	}, "get", "set")
+	h.doConcurrently(t, 8, 25)
+	if reads, writes := h.runner.Counts(); reads+writes != 200 {
+		t.Fatalf("reads+writes = %d, want 200", reads+writes)
 	}
 }
 

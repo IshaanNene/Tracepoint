@@ -111,6 +111,10 @@ type Store struct {
 	root  string
 	clk   clock.Clock
 	alive func(pid int) bool
+
+	// createMu serialises CreateLimited within the process; a file lock on the root
+	// serialises it between processes.
+	createMu sync.Mutex
 }
 
 // Open prepares a store rooted at root, creating it if needed.
@@ -171,6 +175,48 @@ func (s *Store) CreateAt(runID, dir string) (*Run, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+// LockFile is the file CreateLimited locks, in the run root.
+const LockFile = ".create.lock"
+
+// CreateLimited creates a run only while fewer than limit runs are active; 0 means no
+// limit. dir empty means the default location under the root. Counting the active runs
+// and creating this one happen under one lock, so concurrent starts - two tool calls,
+// or a CLI run beside a server - cannot both slip under the limit.
+func (s *Store) CreateLimited(runID, dir string, limit int) (*Run, error) {
+	if dir == "" {
+		dir = filepath.Join(s.root, runID)
+	}
+	if limit <= 0 {
+		return s.CreateAt(runID, dir)
+	}
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	lf, err := os.OpenFile(filepath.Join(s.root, LockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, errs.Wrap(errs.CodeIOWriteFailed, err, "opening the run root's lock file")
+	}
+	// Closing the file releases the lock.
+	defer func() { _ = lf.Close() }()
+	if lerr := lockFile(lf); lerr != nil {
+		return nil, errs.Wrap(errs.CodeIOWriteFailed, lerr, "locking the run root")
+	}
+
+	active, err := s.Active()
+	if err != nil {
+		return nil, err
+	}
+	if len(active) >= limit {
+		ids := make([]string, 0, len(active))
+		for _, st := range active {
+			ids = append(ids, st.RunID)
+		}
+		return nil, errs.New(errs.CodePolicyTooManyRuns,
+			"%d run(s) already active, and the policy allows %d at a time", len(active), limit).
+			WithHint("two tests against one target measure each other; wait for %v, or a human can raise max_concurrent_runs", ids)
+	}
+	return s.CreateAt(runID, dir)
 }
 
 // Path joins a file name onto the run directory.

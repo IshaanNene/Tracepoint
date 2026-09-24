@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -243,5 +245,55 @@ func TestAuditAppends(t *testing.T) {
 	}
 	if n != 2 {
 		t.Fatalf("%d audit lines, want 2", n)
+	}
+}
+
+// Concurrent starts cannot both slip under the limit, within a process or between two
+// stores on one root - which is what two processes are, since each has its own mutex
+// and only the file lock stands between them.
+func TestCreateLimitedIsAtomic(t *testing.T) {
+	a := newStore(t, nil)
+	b, err := runstore.Open(a.Root(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 16
+	var wg sync.WaitGroup
+	results := make(chan error, n)
+	for i := range n {
+		s := a
+		if i%2 == 1 {
+			s = b
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, cerr := s.CreateLimited(fmt.Sprintf("20260924T100000Z-%06d", i), "", 1)
+			results <- cerr
+		}()
+	}
+	wg.Wait()
+	close(results)
+	won := 0
+	for err := range results {
+		var typed *errs.Error
+		switch {
+		case err == nil:
+			won++
+		case errors.As(err, &typed) && typed.Code == errs.CodePolicyTooManyRuns:
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if won != 1 {
+		t.Fatalf("%d runs created under a limit of 1", won)
+	}
+	active, err := a.Active()
+	if err != nil || len(active) != 1 {
+		t.Fatalf("active = %d %v", len(active), err)
+	}
+	// No limit, no lock and no refusal.
+	if _, err := a.CreateLimited("20260924T100001Z-unlimited", "", 0); err != nil {
+		t.Fatal(err)
 	}
 }

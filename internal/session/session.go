@@ -151,16 +151,8 @@ func Prepare(ctx context.Context, req Request) (*Prepared, error) {
 		}
 		p.Run = r
 	} else {
-		if e := checkConcurrency(req.Store, eff); e != nil {
-			return nil, e
-		}
 		id := engine.NewRunID(req.Clock.Now(), p.seed)
-		var r *runstore.Run
-		if req.OutDir != "" {
-			r, err = req.Store.CreateAt(id, req.OutDir)
-		} else {
-			r, err = req.Store.Create(id)
-		}
+		r, err := req.Store.CreateLimited(id, req.OutDir, eff.MaxConcurrentRuns)
 		if err != nil {
 			return nil, err
 		}
@@ -179,27 +171,6 @@ func Prepare(ctx context.Context, req Request) (*Prepared, error) {
 		}
 	}
 	return p, nil
-}
-
-func checkConcurrency(store *runstore.Store, eff policy.Policy) error {
-	limit := eff.MaxConcurrentRuns
-	if limit <= 0 {
-		return nil
-	}
-	active, err := store.Active()
-	if err != nil {
-		return err
-	}
-	if len(active) >= limit {
-		ids := make([]string, 0, len(active))
-		for _, st := range active {
-			ids = append(ids, st.RunID)
-		}
-		return errs.New(errs.CodePolicyTooManyRuns,
-			"%d run(s) already active, and the policy allows %d at a time", len(active), limit).
-			WithHint("two tests against one target measure each other; wait for %v, or a human can raise max_concurrent_runs", ids)
-	}
-	return nil
 }
 
 // Preflight checks targets and connectivity without generating load, then releases

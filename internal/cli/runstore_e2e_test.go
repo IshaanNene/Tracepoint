@@ -369,3 +369,43 @@ func TestDetachReportsPreflightSynchronously(t *testing.T) {
 		t.Fatalf("the refused run should be recorded as failed: %s", st.stdout)
 	}
 }
+
+// execTTY runs the command tree as if both streams were terminals.
+func execTTY(t *testing.T, root string, args ...string) run {
+	t.Helper()
+	var out, errBuf bytes.Buffer
+	code := cli.Execute(context.Background(), cli.Env{
+		Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errBuf, Args: args,
+		Lookup: func(string) (string, bool) { return "", false },
+		IsTTY:  true, ErrTTY: true, NoColour: true, RunRoot: root, Actor: "test",
+	})
+	return run{code: code, stdout: out.String(), stderr: errBuf.String()}
+}
+
+// At a terminal the live view draws on stderr, logs stay out of it, and the summary
+// still lands on stdout afterwards.
+func TestLiveViewAtATerminal(t *testing.T) {
+	srv := newServer(t, 0)
+	root := filepath.Join(t.TempDir(), "runs")
+	r := execTTY(t, root, "run", "-c", simpleConfig(t, srv.URL, "2s"))
+	if r.code != errs.ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	id := onlyRun(t, root)
+	for _, want := range []string{"tracepoint  " + id, "in flight", "run completed"} {
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("the live view lacks %q", want)
+		}
+	}
+	if strings.Contains(r.stderr, "msg=progress") || strings.Contains(r.stderr, "msg=starting") {
+		t.Error("log lines tore the live view")
+	}
+	if !strings.Contains(r.stdout, "VERDICT") && !strings.Contains(r.stdout, "verdict") {
+		t.Errorf("no summary on stdout:\n%s", r.stdout)
+	}
+	// --no-live falls back to the plain line even at a terminal.
+	plain := execTTY(t, filepath.Join(t.TempDir(), "runs"), "run", "-c", simpleConfig(t, srv.URL, "6s"), "--no-live")
+	if plain.code != errs.ExitOK || strings.Count(plain.stderr, "msg=progress") != 1 || strings.Contains(plain.stderr, "in flight  done") {
+		t.Fatalf("--no-live: exit %d\n%s", plain.code, plain.stderr)
+	}
+}

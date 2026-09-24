@@ -39,6 +39,9 @@ type Env struct {
 	// IsTTY reports whether stdout is a terminal. Colour and the live view are used
 	// only when it is.
 	IsTTY bool
+	// ErrTTY reports whether stderr is a terminal: the live view draws there, so it
+	// needs both.
+	ErrTTY bool
 	// NoColour forces plain output, from NO_COLOR or --no-color.
 	NoColour bool
 	// CI reports whether this is a CI environment, which forbids prompting.

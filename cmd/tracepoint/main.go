@@ -22,6 +22,7 @@ func main() {
 		Args:     os.Args[1:],
 		Lookup:   os.LookupEnv,
 		IsTTY:    isTerminal(os.Stdout),
+		ErrTTY:   isTerminal(os.Stderr),
 		NoColour: os.Getenv("NO_COLOR") != "",
 		CI:       os.Getenv("CI") != "",
 	}))

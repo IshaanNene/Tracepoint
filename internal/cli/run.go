@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,8 +15,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/IshaanNene/Tracepoint/internal/config"
-	"github.com/IshaanNene/Tracepoint/internal/engine"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
+	"github.com/IshaanNene/Tracepoint/internal/live"
 	"github.com/IshaanNene/Tracepoint/internal/plan"
 	"github.com/IshaanNene/Tracepoint/internal/policy"
 	clirender "github.com/IshaanNene/Tracepoint/internal/render/cli"
@@ -28,6 +29,7 @@ type runOptions struct {
 	from         string
 	resultPath   string
 	reportPath   string
+	noLive       bool
 	policyPath   string
 	runRoot      string
 	outDir       string
@@ -92,6 +94,7 @@ still reported at once; the load then runs in the background and the command pri
 	f.StringVar(&opts.outDir, "out-dir", "", "write the run directory here instead of under the run root")
 	f.StringVar(&opts.runRoot, "run-root", "", "directory run directories are created under; defaults to the policy's run_root, then runs/")
 	f.StringVar(&opts.events, "events", "", "stream events as NDJSON: - for stdout (which then carries nothing else), or a file path")
+	f.BoolVar(&opts.noLive, "no-live", false, "log a progress line every 5s instead of drawing the live view, even on a terminal")
 	f.BoolVar(&opts.detach, "detach", false, "validate and preflight, then run in the background and print {run_id, run_dir}")
 	f.BoolVar(&opts.allowInvalid, "allow-invalid", false, "exit 0 for a run the generator bottlenecked, instead of 4")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "include the per-label table")
@@ -112,10 +115,13 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 		return err
 	}
 
+	// The run logs through a handler the live view can take over for the length of
+	// the run and hand back.
+	logs := newSwitchHandler(g.logger(env).Handler())
 	req := session.Request{
 		Overrides: opts.overrides, Granted: granted, Lookup: env.Lookup,
 		Thresholds: opts.thresholds, AllowInvalid: opts.allowInvalid, Actor: env.actor(),
-		Logger: g.logger(env), Store: store, OutDir: opts.outDir, ResultPath: opts.resultPath, ReportPath: opts.reportPath,
+		Logger: slog.New(logs), Store: store, OutDir: opts.outDir, ResultPath: opts.resultPath, ReportPath: opts.reportPath,
 		Detached: opts.detach,
 	}
 	if opts.seedSet {
@@ -155,16 +161,43 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 	if closeEvents != nil {
 		defer closeEvents()
 	}
-	if !g.json() && !stdoutIsEvents && !opts.detach {
-		req.Progress = progressPrinter(env, g)
+	// A person at a terminal gets the live view; everywhere else - a pipe, CI, an
+	// agent - one progress line every five seconds.
+	var view *live.View
+	var plain *plainProgress
+	showLive := env.IsTTY && env.ErrTTY && !env.CI && !opts.noLive && !g.json() && !stdoutIsEvents && !opts.detach
+	switch {
+	case showLive:
+		view = live.Start(env.Stderr, g.colour(env))
+		// From here until finishView the view owns stderr; a log line would tear it.
+		logs.set(view.Handler())
+		req.Progress = view.Progress
+		req.EventFuncs = append(req.EventFuncs, view.Event)
+	case !g.json() && !stdoutIsEvents && !opts.detach:
+		plain = newPlainProgress(req.Logger)
+		req.Progress = plain.observe
 	}
+	finishView := func(status string) {
+		if view != nil {
+			view.Finish(status)
+			logs.set(g.logger(env).Handler())
+			view = nil
+		}
+	}
+	defer finishView("stopped")
 
 	prepared, err := session.Prepare(ctx, req)
 	if err != nil {
 		return err
 	}
-	for _, w := range prepared.Warnings {
-		req.Logger.Warn(w.Message, "code", w.Code, "fix", w.Fix)
+	if view == nil {
+		// The live view shows these from the event stream instead.
+		for _, w := range prepared.Warnings {
+			req.Logger.Warn(w.Message, "code", w.Code, "fix", w.Fix)
+		}
+	}
+	if plain != nil {
+		plain.setRunners(prepared.Config.Runners())
 	}
 
 	if opts.detach {
@@ -182,11 +215,25 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 
 	req.Logger.Info("starting", "run_id", prepared.ID(), "run_dir", prepared.Run.Dir,
 		"duration", prepared.Config.Run.Duration.String(), "runners", prepared.Config.Runners())
+	if view != nil {
+		view.Run(prepared.ID(), prepared.Config.Run.Duration.D(), prepared.Config.Run.Timeout.D())
+		// A message sent after the view has finished is dropped, so a late signal is
+		// harmless.
+		go func(v *live.View) {
+			select {
+			case <-ctx.Done():
+				v.Stopping()
+			case <-finished:
+			}
+		}(view)
+	}
 
 	out, err := prepared.Execute(ctx)
 	if err != nil {
+		finishView("failed")
 		return err
 	}
+	finishView(out.Result.Run.Status)
 
 	switch {
 	case stdoutIsEvents:
@@ -334,17 +381,4 @@ func thresholdFlags(cmd *cobra.Command, flags map[string]*time.Duration) map[str
 		}
 	}
 	return out
-}
-
-// progressPrinter writes one line per second to stderr.
-func progressPrinter(env Env, g *globals) func(engine.Progress) {
-	log := g.logger(env)
-	return func(p engine.Progress) {
-		log.Info("progress",
-			"runner", p.Runner,
-			"elapsed", p.Elapsed.Round(time.Second).String(),
-			"of", p.Total.String(),
-			"offered", p.Offered, "done", p.Done, "errors", p.Errors,
-			"in_flight", p.InFlight, "p99_ms", fmt.Sprintf("%.1f", p.P99MS))
-	}
 }

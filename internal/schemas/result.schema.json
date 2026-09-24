@@ -18,7 +18,7 @@
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$",
       "examples": [
-        "1.0"
+        "1.1"
       ]
     },
     "tool": {
@@ -794,6 +794,14 @@
                 }
               ],
               "description": "How late arrivals were handed out relative to their scheduled time. A p99 above max(5ms, 5% of a bucket) means the generator itself fell behind and the run is invalid."
+            },
+            "start_target": {
+              "description": "The rate (arrival-rate) or VU count (vus) the profile began at, before its first stage. Distinguishes a ramp from a hold. Added in 1.1.",
+              "type": "number",
+              "minimum": 0,
+              "examples": [
+                0
+              ]
             },
             "stages": {
               "description": "The profile that ran.",

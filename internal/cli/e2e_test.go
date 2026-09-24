@@ -220,6 +220,32 @@ http:
 	if ratio := number(t, rn, "summary", "error_ratio"); ratio != 0 {
 		t.Errorf("error ratio = %v against a healthy target", ratio)
 	}
+	// The rate shorthand is a hold: the profile starts where it stays.
+	if start := number(t, rn, "executor", "start_target"); start != 40 {
+		t.Errorf("start_target = %v, want 40 for a hold at 40/s", start)
+	}
+}
+
+// A stages list ramps up from nothing, and the result says so.
+func TestRampRecordsItsStart(t *testing.T) {
+	srv := newServer(t, 0)
+	cfg := writeConfig(t, fmt.Sprintf(`
+version: 1
+run: { duration: 2s, bucket: 500ms, seed: 42, timeout: 3s }
+http:
+  base_url: %q
+  executor: { stages: [{ duration: 1s, target: 40 }, { duration: 1s, target: 40 }] }
+  requests: [{ name: items, url: "/api/items" }]
+`, srv.URL))
+	r := exec(t, "run", "-c", cfg, "--output", "json", "--log-level", "error")
+	if r.code != errs.ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	doc := validateAgainst(t, compileSchema(t, "result"), r.stdout, "result.json")
+	rn, _ := doc["runners"].([]any)[0].(map[string]any)
+	if start := number(t, rn, "executor", "start_target"); start != 0 {
+		t.Errorf("start_target = %v, want 0 for a ramp from nothing", start)
+	}
 }
 
 // The §6.1 contract: with --output json, stdout carries exactly one JSON document.

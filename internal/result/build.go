@@ -26,6 +26,8 @@ type RunnerInput struct {
 	SQL      *SQLDetail
 	Redis    *RedisDetail
 	Stages   []Stage
+	// StartTarget is where the profile began; nil when unknown.
+	StartTarget *float64
 }
 
 // BuildInput is everything needed to assemble a result.
@@ -172,7 +174,7 @@ func buildRunner(in RunnerInput) Runner {
 	out.Executor = &ExecutorStats{
 		Type: "arrival-rate", Offered: st.Offered, Dispatched: st.Dispatched,
 		Dropped: st.Dropped, MaxInFlight: st.MaxInFlight, PeakInFlight: st.PeakInFlight,
-		DispatchLagMS: convertQuantiles(st.DispatchLag), Stages: in.Stages,
+		DispatchLagMS: convertQuantiles(st.DispatchLag), Stages: in.Stages, StartTarget: in.StartTarget,
 	}
 	if st.Offered > 0 {
 		out.Executor.DroppedRatio = float64(st.Dropped) / float64(st.Offered)

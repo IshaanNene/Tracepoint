@@ -104,6 +104,7 @@ type boundRunner struct {
 	collector *metrics.Collector
 	exec      *executor.ArrivalRate
 	stages    []result.Stage
+	startAt   float64
 	targets   []result.Target
 	recorder  metrics.Recorder
 	// lastSealed is the highest bucket already reported as sealed.
@@ -410,7 +411,8 @@ func (e *Engine) buildExecutors() error {
 			stages = append(stages, schedule.Stage{Duration: s.Duration.D(), Target: s.Target})
 			br.stages = append(br.stages, result.Stage{DurationMS: float64(s.Duration.D()) / float64(time.Millisecond), Target: s.Target})
 		}
-		profile, err := schedule.NewProfile(ex.StartRate(), stages)
+		br.startAt = ex.StartRate()
+		profile, err := schedule.NewProfile(br.startAt, stages)
 		if err != nil {
 			return err
 		}
@@ -581,6 +583,10 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 			Snapshot: br.collector.Snapshot(),
 			Stats:    br.exec.Stats(),
 			Stages:   br.stages,
+		}
+		if len(br.stages) > 0 {
+			start := br.startAt
+			ri.StartTarget = &start
 		}
 		ri.Targets = br.targets
 		switch impl := br.runner.(type) {

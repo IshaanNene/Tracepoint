@@ -14,7 +14,7 @@ package result
 //
 // MAJOR.MINOR. Additive changes are MINOR and readers must ignore fields they do not
 // recognise. Anything else is MAJOR and needs a migration.
-const SchemaVersion = "1.0"
+const SchemaVersion = "1.1"
 
 // Result is one run.
 type Result struct {
@@ -171,7 +171,10 @@ type ExecutorStats struct {
 	MaxInFlight   int       `json:"max_in_flight,omitempty"`
 	PeakInFlight  int64     `json:"peak_in_flight,omitempty"`
 	DispatchLagMS Quantiles `json:"dispatch_lag_ms"`
-	Stages        []Stage   `json:"stages,omitempty"`
+	// StartTarget is the rate or VU count the profile began at, before its first
+	// stage. With it a reader can tell a ramp from a hold. Added in 1.1.
+	StartTarget *float64 `json:"start_target,omitempty"`
+	Stages      []Stage  `json:"stages,omitempty"`
 }
 
 // Stage is one segment of the load profile that ran.

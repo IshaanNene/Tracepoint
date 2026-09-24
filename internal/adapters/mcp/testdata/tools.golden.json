@@ -1,0 +1,2105 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get the safety policy"
+    },
+    "description": "Return the safety policy this server enforces: which targets may be loaded, whether writes and destructive statements are allowed, rate, concurrency and duration ceilings, and how many runs may be active at once. Call it before writing a configuration so the configuration fits, and when a call is refused with a POLICY_* code. The policy was fixed by a human when the server started; no call can change or exceed it - report a refusal to the human rather than working around it.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "name": "get_policy",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "how_to_change": {
+          "description": "Who can change it and how. An agent cannot.",
+          "type": "string"
+        },
+        "policy": {
+          "additionalProperties": false,
+          "description": "The safety envelope every call is held to. A configuration can tighten it but never exceed it.",
+          "properties": {
+            "allow_dangerous": {
+              "type": "boolean"
+            },
+            "allow_detach": {
+              "type": "boolean"
+            },
+            "allow_insecure_tls": {
+              "type": "boolean"
+            },
+            "allow_public_targets": {
+              "type": "boolean"
+            },
+            "allow_targets": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "allow_writes": {
+              "type": "boolean"
+            },
+            "deny_targets": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "max_concurrent_runs": {
+              "type": "integer"
+            },
+            "max_duration": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "max_in_flight": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "max_rate_per_runner": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "redact_headers": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "run_root": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "allow_public_targets",
+            "allow_writes",
+            "allow_dangerous",
+            "allow_insecure_tls",
+            "allow_detach",
+            "max_concurrent_runs",
+            "run_root"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "policy",
+        "how_to_change"
+      ],
+      "type": "object"
+    },
+    "title": "Get the safety policy"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get a run's digest"
+    },
+    "description": "Return the compact, prioritised summary of a finished run: validity, SLO outcome, the verdict with evidence and confidence, the worst incidents, headline numbers per tier, machine-applicable recommendations and artifact paths - in that order. Read it before anything else and stop when you have the answer. A recommendation with action rerun carries the exact overrides to pass to start_run. Correlation is not causation; say so when reporting.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_chars": {
+          "description": "Largest digest to return, in characters (default 4000). When content is dropped to fit, truncated is true and more says what to fetch with get_run_section.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "description": "The run to summarise.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_run_digest",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "additionalProperties": false,
+          "properties": {
+            "events": {
+              "type": "string"
+            },
+            "report": {
+              "type": "string"
+            },
+            "result": {
+              "type": "string"
+            },
+            "run_dir": {
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "correlation": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "lag_buckets": {
+                "type": "integer"
+              },
+              "n_buckets": {
+                "type": "integer"
+              },
+              "rho": {
+                "type": "number"
+              },
+              "storage": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "storage",
+              "rho",
+              "lag_buckets"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "duration_s": {
+          "type": "number"
+        },
+        "incidents": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "app_p99_ms": {
+                "type": "number"
+              },
+              "class": {
+                "type": "string"
+              },
+              "corroboration": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "culprit": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "culprit_p99_ms": {
+                "type": "number"
+              },
+              "duration_s": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "lead_buckets": {
+                "type": "integer"
+              },
+              "runners_hot": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "start_s": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "class",
+              "start_s",
+              "duration_s",
+              "culprit"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "more": {
+          "additionalProperties": false,
+          "properties": {
+            "dropped": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "hint": {
+              "type": "string"
+            },
+            "sections": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            }
+          },
+          "required": [
+            "hint"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "recommendations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "overrides": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "priority": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "why",
+              "action"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "run_name": {
+          "type": "string"
+        },
+        "runners": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "achieved_rps": {
+                "type": "number"
+              },
+              "client_wait_p99_ms": {
+                "type": "number"
+              },
+              "dropped_ratio": {
+                "type": "number"
+              },
+              "error_ratio": {
+                "type": "number"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "n": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "p50_ms": {
+                "type": "number"
+              },
+              "p95_ms": {
+                "type": "number"
+              },
+              "p99_ms": {
+                "type": "number"
+              },
+              "service_p99_ms": {
+                "type": "number"
+              },
+              "top_errors": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "n",
+              "achieved_rps",
+              "error_ratio",
+              "p50_ms",
+              "p95_ms",
+              "p99_ms",
+              "service_p99_ms",
+              "client_wait_p99_ms",
+              "dropped_ratio"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "slo": {
+          "additionalProperties": false,
+          "properties": {
+            "breaches": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "actual": {
+                    "type": "number"
+                  },
+                  "budget": {
+                    "type": "number"
+                  },
+                  "metric": {
+                    "type": "string"
+                  },
+                  "runner": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "runner",
+                  "metric",
+                  "budget",
+                  "actual"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "configured": {
+              "type": "boolean"
+            },
+            "pass": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "pass",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "telemetry": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "highlights": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "available"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "validity": {
+          "additionalProperties": false,
+          "properties": {
+            "findings": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "fix": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "severity",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "state": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        "verdict": {
+          "additionalProperties": false,
+          "properties": {
+            "bottleneck": {
+              "type": "string"
+            },
+            "caveat": {
+              "type": "string"
+            },
+            "confidence": {
+              "type": "string"
+            },
+            "evidence": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "next_steps": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "bottleneck",
+            "confidence",
+            "summary"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "status",
+        "validity",
+        "slo",
+        "verdict",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "title": "Get a run's digest"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get one section of a run's result"
+    },
+    "description": "Return one page of one section of a finished run's result: incidents, per-label summaries, the per-bucket timeline of a runner, telemetry samples, or capacity levels. Use it only when the digest is not enough - when it was truncated, or to check the evidence behind a verdict in a specific time window. Pages keep each response small.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from_s": {
+          "description": "For timeline and telemetry, the start of the window in seconds from the run start.",
+          "type": "number"
+        },
+        "page": {
+          "description": "Page number, from 1.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "page_size": {
+          "description": "Items per page, 1 to 200 (default 50).",
+          "maximum": 200,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "description": "The run.",
+          "type": "string"
+        },
+        "runner": {
+          "description": "For timeline, the runner (default: the application runner). For telemetry, the sampler: generator, postgres, mysql or redis. For labels, restricts to one runner.",
+          "type": "string"
+        },
+        "section": {
+          "description": "incidents: every incident in full. labels: per-label summaries. timeline: per-bucket numbers for one runner. telemetry: samples from one sampler. levels: capacity-search levels.",
+          "enum": [
+            "incidents",
+            "labels",
+            "timeline",
+            "telemetry",
+            "levels"
+          ],
+          "type": "string"
+        },
+        "to_s": {
+          "description": "For timeline and telemetry, the end of the window; 0 means the end of the run.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "run_id",
+        "section"
+      ],
+      "type": "object"
+    },
+    "name": "get_run_section",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": true,
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "page": {
+          "type": "integer"
+        },
+        "pages": {
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "section": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "section",
+        "page",
+        "pages",
+        "total",
+        "items"
+      ],
+      "type": "object"
+    },
+    "title": "Get one section of a run's result"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get a run's status"
+    },
+    "description": "Return a run's state without waiting: pending, running, completed, interrupted, aborted, failed or lost, with progress, heartbeat and exit code. Use wait_for_run instead when you want to block until it finishes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "A run id from start_run or list_runs; a unique prefix or suffix of one also works.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_run_status",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "artifacts": {
+          "additionalProperties": false,
+          "properties": {
+            "config": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "events": {
+              "type": "string"
+            },
+            "log": {
+              "type": "string"
+            },
+            "report": {
+              "type": "string"
+            },
+            "result": {
+              "type": "string"
+            },
+            "run_dir": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_dir",
+            "state",
+            "events",
+            "result",
+            "digest",
+            "report",
+            "config",
+            "log"
+          ],
+          "type": "object"
+        },
+        "config_hash": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "detached": {
+          "type": "boolean"
+        },
+        "error": true,
+        "exit_code": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "finished_at": {
+          "type": "string"
+        },
+        "heartbeat": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "progress": {
+          "additionalProperties": false,
+          "properties": {
+            "elapsed_ms": {
+              "type": "number"
+            },
+            "ratio": {
+              "type": "number"
+            },
+            "total_ms": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "elapsed_ms",
+            "total_ms",
+            "ratio"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "stop_requested": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "run_dir",
+        "status",
+        "created_at",
+        "artifacts"
+      ],
+      "type": "object"
+    },
+    "title": "Get a run's status"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List runs"
+    },
+    "description": "List runs newest first with status and exit code. Use it to find a run_id, or to see whether a run is already active before starting another - only one test should load a target at a time.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "At most this many runs, newest first (default 20).",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_runs",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "exit_code": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id",
+              "status",
+              "created_at"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "title": "List runs"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Plan a run without running it"
+    },
+    "description": "Describe exactly what a run would do - offered load per runner, targets, SLO budgets and the effective safety envelope - without contacting anything. Call it before start_run to confirm the load and the targets are what the human agreed to.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "description": "The configuration itself: a YAML string, or the same document as a JSON object. Give this or config_path, not both. tracepoint schema config describes every field; scaffold_config writes a starter.",
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "config_path": {
+          "description": "Path to a configuration file, relative to the directory the server was started in. Give this or config, not both.",
+          "type": "string"
+        },
+        "overrides": {
+          "description": "--set style overrides applied on top, as path=value; list items are addressable by name, as in db.queries[by-id].weight=5. A digest's recommendations carry these ready to use.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "plan_run",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "arrival": {
+          "type": "string"
+        },
+        "bucket_s": {
+          "type": "number"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "duration_s": {
+          "type": "number"
+        },
+        "overrides": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "runners": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "driver": {
+                "type": "string"
+              },
+              "executor": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "labels": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "offered_operations": {
+                "type": "number"
+              },
+              "peak_rps": {
+                "type": "number"
+              },
+              "profile": {
+                "type": "string"
+              },
+              "writes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "executor",
+              "profile",
+              "peak_rps",
+              "offered_operations",
+              "labels"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "safety": {
+          "additionalProperties": false,
+          "properties": {
+            "allow_dangerous": {
+              "type": "boolean"
+            },
+            "allow_insecure_tls": {
+              "type": "boolean"
+            },
+            "allow_targets": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "allow_writes": {
+              "type": "boolean"
+            },
+            "max_duration": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "max_rate_per_runner": {
+              "type": [
+                "null",
+                "number"
+              ]
+            }
+          },
+          "required": [
+            "allow_writes",
+            "allow_dangerous",
+            "allow_insecure_tls"
+          ],
+          "type": "object"
+        },
+        "seed": {
+          "minimum": 0,
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "slo": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "budget": {
+                "type": "string"
+              },
+              "metric": {
+                "type": "string"
+              },
+              "runner": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "runner",
+              "metric",
+              "budget"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "total_offered_operations": {
+          "type": "number"
+        },
+        "warmup_s": {
+          "type": "number"
+        },
+        "warnings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "fix": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "duration_s",
+        "bucket_s",
+        "arrival",
+        "runners",
+        "targets",
+        "safety",
+        "total_offered_operations"
+      ],
+      "type": "object"
+    },
+    "title": "Plan a run without running it"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Write a starter configuration"
+    },
+    "description": "Write a commented starter configuration for an application and, optionally, the database and Redis it uses, probing each storage tier alongside the application so a slowdown can be attributed. Use it when there is no configuration yet. It contacts nothing. Ask the human which targets and environments are allowed and what the SLOs are before running anything it produces.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "base_url": {
+          "description": "Base URL of the application under test, such as http://127.0.0.1:8080. Use an environment reference like ${BASE_URL} to keep hosts out of the file.",
+          "type": "string"
+        },
+        "db_driver": {
+          "description": "Database to probe alongside: postgres, mysql or sqlite. Omit for none.",
+          "enum": [
+            "postgres",
+            "mysql",
+            "sqlite"
+          ],
+          "type": "string"
+        },
+        "db_dsn_env": {
+          "description": "Name of the environment variable holding the database DSN, such as DATABASE_URL. The file references it; the value is never written.",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Run length as a Go duration, such as 30s or 3m. Defaults to 30s.",
+          "type": "string"
+        },
+        "paths": {
+          "description": "Request paths to load, such as /api/items. Safe (read-only) endpoints only unless a human has said writes are fine. Defaults to /.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "rate": {
+          "description": "Application requests per second. Defaults to 20; start low and raise it once a smoke run is valid.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "redis_addr_env": {
+          "description": "Name of the environment variable holding the Redis address, such as REDIS_ADDR. Omit for no Redis probe.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "base_url"
+      ],
+      "type": "object"
+    },
+    "name": "scaffold_config",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "config_yaml": {
+          "description": "A commented starter configuration. Pass it to validate_config, then plan_run, before start_run.",
+          "type": "string"
+        },
+        "notes": {
+          "description": "What the starter assumed and what to check.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "config_yaml"
+      ],
+      "type": "object"
+    },
+    "title": "Write a starter configuration"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Start a load test"
+    },
+    "description": "Validate, preflight and start a run in the background, returning its run_id at once; load tests outlive tool calls. Configuration errors, policy refusals and preflight failures are returned synchronously, before any load. Then call wait_for_run until it finishes and read get_run_digest. Start with a short smoke run (30s) and only run one test against a target at a time. It generates real load against the targets.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_invalid": {
+          "description": "Resolve an invalid run to exit 0 instead of 4. Almost never what you want: an invalid run measured the generator, not the target.",
+          "type": "boolean"
+        },
+        "config": {
+          "description": "The configuration itself: a YAML string, or the same document as a JSON object. Give this or config_path, not both. tracepoint schema config describes every field; scaffold_config writes a starter.",
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "config_path": {
+          "description": "Path to a configuration file, relative to the directory the server was started in. Give this or config, not both.",
+          "type": "string"
+        },
+        "overrides": {
+          "description": "--set style overrides applied on top, as path=value; list items are addressable by name, as in db.queries[by-id].weight=5. A digest's recommendations carry these ready to use.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "seed": {
+          "description": "Seed for every random choice; recorded in the result. Reuse a run's seed to reproduce it.",
+          "minimum": 0,
+          "type": [
+            "null",
+            "integer"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "start_run",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "pid": {
+          "type": "integer"
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "run_id": {
+          "description": "Pass to wait_for_run, get_run_status, get_run_digest and stop_run.",
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "run_dir",
+        "status"
+      ],
+      "type": "object"
+    },
+    "title": "Start a load test"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stop a run gracefully"
+    },
+    "description": "Ask a running test to stop. It stops offering load within half a second, drains in-flight work and writes a partial result marked interrupted, which wait_for_run then returns. Use it when a run is no longer wanted or is hurting a target; stopping an ended run does nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "A run id from start_run or list_runs; a unique prefix or suffix of one also works.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "name": "stop_run",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "stopped": {
+          "description": "True when a stop was requested; false when the run had already ended.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run_id",
+        "stopped",
+        "status"
+      ],
+      "type": "object"
+    },
+    "title": "Stop a run gracefully"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Validate a configuration"
+    },
+    "description": "Load and validate a configuration under this server's policy without contacting anything. Every problem is reported at once, each with a stable code, a JSON path, a line and a fix. Call it after writing or changing a configuration and before plan_run or start_run.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "description": "The configuration itself: a YAML string, or the same document as a JSON object. Give this or config_path, not both. tracepoint schema config describes every field; scaffold_config writes a starter.",
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "config_path": {
+          "description": "Path to a configuration file, relative to the directory the server was started in. Give this or config, not both.",
+          "type": "string"
+        },
+        "overrides": {
+          "description": "--set style overrides applied on top, as path=value; list items are addressable by name, as in db.queries[by-id].weight=5. A digest's recommendations carry these ready to use.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "validate_config",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "type": "string"
+        },
+        "effective": {
+          "description": "The configuration after defaults, with secrets redacted."
+        },
+        "runners": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "fix": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "valid",
+        "runners",
+        "duration",
+        "targets",
+        "effective"
+      ],
+      "type": "object"
+    },
+    "title": "Validate a configuration"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Wait for a run to finish"
+    },
+    "description": "Wait up to timeout_s seconds (at most 50) for a run to finish. Returns finished=false with the current state if it is still going - call again - or the final state, exit code and digest when done. Read the digest's validity first: an invalid run measured the generator, not the target, and its verdict must not be reported.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "The run to wait for.",
+          "type": "string"
+        },
+        "timeout_s": {
+          "description": "How long to wait in this call, 1 to 50 seconds (default 45). If the run is still going when it expires, call again.",
+          "maximum": 50,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "name": "wait_for_run",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "additionalProperties": false,
+          "description": "The run's digest, once finished - the same document get_run_digest returns.",
+          "properties": {
+            "artifacts": {
+              "additionalProperties": false,
+              "properties": {
+                "events": {
+                  "type": "string"
+                },
+                "report": {
+                  "type": "string"
+                },
+                "result": {
+                  "type": "string"
+                },
+                "run_dir": {
+                  "type": "string"
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "correlation": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "lag_buckets": {
+                    "type": "integer"
+                  },
+                  "n_buckets": {
+                    "type": "integer"
+                  },
+                  "rho": {
+                    "type": "number"
+                  },
+                  "storage": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "storage",
+                  "rho",
+                  "lag_buckets"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "duration_s": {
+              "type": "number"
+            },
+            "incidents": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "app_p99_ms": {
+                    "type": "number"
+                  },
+                  "class": {
+                    "type": "string"
+                  },
+                  "corroboration": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "culprit": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "culprit_p99_ms": {
+                    "type": "number"
+                  },
+                  "duration_s": {
+                    "type": "number"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "lead_buckets": {
+                    "type": "integer"
+                  },
+                  "runners_hot": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "start_s": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "id",
+                  "class",
+                  "start_s",
+                  "duration_s",
+                  "culprit"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "more": {
+              "additionalProperties": false,
+              "properties": {
+                "dropped": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "hint": {
+                  "type": "string"
+                },
+                "sections": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                }
+              },
+              "required": [
+                "hint"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "recommendations": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "overrides": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "priority": {
+                    "type": "integer"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "why",
+                  "action"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "run_name": {
+              "type": "string"
+            },
+            "runners": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "achieved_rps": {
+                    "type": "number"
+                  },
+                  "client_wait_p99_ms": {
+                    "type": "number"
+                  },
+                  "dropped_ratio": {
+                    "type": "number"
+                  },
+                  "error_ratio": {
+                    "type": "number"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "n": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "p50_ms": {
+                    "type": "number"
+                  },
+                  "p95_ms": {
+                    "type": "number"
+                  },
+                  "p99_ms": {
+                    "type": "number"
+                  },
+                  "service_p99_ms": {
+                    "type": "number"
+                  },
+                  "top_errors": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "n",
+                  "achieved_rps",
+                  "error_ratio",
+                  "p50_ms",
+                  "p95_ms",
+                  "p99_ms",
+                  "service_p99_ms",
+                  "client_wait_p99_ms",
+                  "dropped_ratio"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "slo": {
+              "additionalProperties": false,
+              "properties": {
+                "breaches": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "actual": {
+                        "type": "number"
+                      },
+                      "budget": {
+                        "type": "number"
+                      },
+                      "metric": {
+                        "type": "string"
+                      },
+                      "runner": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "runner",
+                      "metric",
+                      "budget",
+                      "actual"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "configured": {
+                  "type": "boolean"
+                },
+                "pass": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "pass",
+                "configured"
+              ],
+              "type": "object"
+            },
+            "started_at": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "telemetry": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "available": {
+                    "type": "boolean"
+                  },
+                  "highlights": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source",
+                  "available"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "validity": {
+              "additionalProperties": false,
+              "properties": {
+                "findings": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "fix": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "severity",
+                      "message"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            "verdict": {
+              "additionalProperties": false,
+              "properties": {
+                "bottleneck": {
+                  "type": "string"
+                },
+                "caveat": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "next_steps": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "bottleneck",
+                "confidence",
+                "summary"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "schema_version",
+            "run_id",
+            "status",
+            "validity",
+            "slo",
+            "verdict",
+            "truncated"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "exit_code": {
+          "description": "The run's exit code, once finished: 0 valid and within budget, 1 budget breached, 3 failed or cut short, 4 invalid.",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "finished": {
+          "description": "True when the run reached a final status. False means it is still going: call wait_for_run again.",
+          "type": "boolean"
+        },
+        "state": {
+          "additionalProperties": false,
+          "properties": {
+            "actor": {
+              "type": "string"
+            },
+            "artifacts": {
+              "additionalProperties": false,
+              "properties": {
+                "config": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "events": {
+                  "type": "string"
+                },
+                "log": {
+                  "type": "string"
+                },
+                "report": {
+                  "type": "string"
+                },
+                "result": {
+                  "type": "string"
+                },
+                "run_dir": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "run_dir",
+                "state",
+                "events",
+                "result",
+                "digest",
+                "report",
+                "config",
+                "log"
+              ],
+              "type": "object"
+            },
+            "config_hash": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "detached": {
+              "type": "boolean"
+            },
+            "error": true,
+            "exit_code": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "finished_at": {
+              "type": "string"
+            },
+            "heartbeat": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "pid": {
+              "type": "integer"
+            },
+            "progress": {
+              "additionalProperties": false,
+              "properties": {
+                "elapsed_ms": {
+                  "type": "number"
+                },
+                "ratio": {
+                  "type": "number"
+                },
+                "total_ms": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "elapsed_ms",
+                "total_ms",
+                "ratio"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "run_dir": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "started_at": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "stop_requested": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "schema_version",
+            "run_id",
+            "run_dir",
+            "status",
+            "created_at",
+            "artifacts"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "finished",
+        "state"
+      ],
+      "type": "object"
+    },
+    "title": "Wait for a run to finish"
+  }
+]

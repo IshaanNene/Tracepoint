@@ -1,0 +1,2582 @@
+{
+  "components": {
+    "schemas": {
+      "Error": {
+        "$defs": {
+          "nested": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "pattern": "^[A-Z][A-Z0-9_]*$",
+                "type": "string"
+              },
+              "column": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "docs": {
+                "type": "string"
+              },
+              "hint": {
+                "type": "string"
+              },
+              "line": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/error.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "The single JSON document written to stdout when a command run with --output json fails, and the body of a failed REST or MCP operation. Exactly one of this or a success document is emitted. Codes are stable: renaming one is a breaking change. The full registry is in docs/ERRORS.md and in the capabilities manifest.",
+        "properties": {
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "causes": {
+                "description": "Additional errors of the same shape when several independent problems were found at once, as when a configuration has many invalid fields. The top-level error summarises them.",
+                "items": {
+                  "$ref": "#/$defs/nested"
+                },
+                "type": "array"
+              },
+              "code": {
+                "description": "Stable, machine-readable identifier. Branch on this, never on the message.",
+                "examples": [
+                  "CONFIG_UNKNOWN_FIELD",
+                  "POLICY_DENIED",
+                  "PREFLIGHT_FAILED"
+                ],
+                "pattern": "^[A-Z][A-Z0-9_]*$",
+                "type": "string"
+              },
+              "column": {
+                "description": "1-based column in the source file, when known.",
+                "examples": [
+                  7
+                ],
+                "minimum": 1,
+                "type": "integer"
+              },
+              "details": {
+                "description": "Further structured context, shaped per code. Never contains secrets or response bodies.",
+                "type": "object"
+              },
+              "docs": {
+                "description": "Documentation anchor explaining this code.",
+                "examples": [
+                  "docs/CONFIG.md#http-requests"
+                ],
+                "type": "string"
+              },
+              "exit_code": {
+                "description": "Exit code the CLI used or would use for this error: 2 usage, config or policy refusal; 3 preflight or runtime failure; 4 run invalid; 5 wait timed out.",
+                "enum": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5
+                ],
+                "examples": [
+                  2
+                ],
+                "type": "integer"
+              },
+              "hint": {
+                "description": "What to do about it, concretely. Present whenever a fix can be named.",
+                "examples": [
+                  "did you mean \"method\"?"
+                ],
+                "type": "string"
+              },
+              "line": {
+                "description": "1-based line in the source file, when known.",
+                "examples": [
+                  12
+                ],
+                "minimum": 1,
+                "type": "integer"
+              },
+              "message": {
+                "description": "One sentence describing what went wrong, in lower case and without a trailing period.",
+                "examples": [
+                  "unknown field \"metod\""
+                ],
+                "type": "string"
+              },
+              "path": {
+                "description": "JSON Pointer to the offending location in the input document, when the error is about a document.",
+                "examples": [
+                  "/http/requests/0/metod"
+                ],
+                "type": "string"
+              },
+              "retriable": {
+                "description": "Whether repeating the identical call could plausibly succeed. Configuration and policy errors are never retriable.",
+                "examples": [
+                  false
+                ],
+                "type": "boolean"
+              },
+              "run_id": {
+                "description": "Run this error belongs to, when it happened inside a run.",
+                "examples": [
+                  "20260919T210000Z-a1b2c3"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "TracePoint error envelope",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Correlated HTTP, SQL and Redis load testing that reports which tier a slowdown came from. Every operation is also an MCP tool with the same name, input and output.",
+    "title": "TracePoint",
+    "version": "dev"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/ops/get_policy": {
+      "post": {
+        "description": "Return the safety policy this server enforces: which targets may be loaded, whether writes and destructive statements are allowed, rate, concurrency and duration ceilings, and how many runs may be active at once. Call it before writing a configuration so the configuration fits, and when a call is refused with a POLICY_* code. The policy was fixed by a human when the server started; no call can change or exceed it - report a refusal to the human rather than working around it.",
+        "operationId": "get_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "policy": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "integer"
+                        },
+                        "allow_targets": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "deny_targets": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "allow_public_targets": {
+                          "type": "boolean"
+                        },
+                        "allow_writes": {
+                          "type": "boolean"
+                        },
+                        "allow_dangerous": {
+                          "type": "boolean"
+                        },
+                        "allow_insecure_tls": {
+                          "type": "boolean"
+                        },
+                        "allow_detach": {
+                          "type": "boolean"
+                        },
+                        "max_rate_per_runner": {
+                          "type": [
+                            "null",
+                            "number"
+                          ]
+                        },
+                        "max_in_flight": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        },
+                        "max_duration": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
+                        },
+                        "max_concurrent_runs": {
+                          "type": "integer"
+                        },
+                        "run_root": {
+                          "type": "string"
+                        },
+                        "redact_headers": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "description": "The safety envelope every call is held to. A configuration can tighten it but never exceed it.",
+                      "required": [
+                        "version",
+                        "allow_public_targets",
+                        "allow_writes",
+                        "allow_dangerous",
+                        "allow_insecure_tls",
+                        "allow_detach",
+                        "max_concurrent_runs",
+                        "run_root"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "how_to_change": {
+                      "type": "string",
+                      "description": "Who can change it and how. An agent cannot."
+                    }
+                  },
+                  "required": [
+                    "policy",
+                    "how_to_change"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Get the safety policy"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Get the safety policy",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/get_run_digest": {
+      "post": {
+        "description": "Return the compact, prioritised summary of a finished run: validity, SLO outcome, the verdict with evidence and confidence, the worst incidents, headline numbers per tier, machine-applicable recommendations and artifact paths - in that order. Read it before anything else and stop when you have the answer. A recommendation with action rerun carries the exact overrides to pass to start_run. Correlation is not causation; say so when reporting.",
+        "operationId": "get_run_digest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "description": "The run to summarise."
+                  },
+                  "budget_chars": {
+                    "type": "integer",
+                    "description": "Largest digest to return, in characters (default 4000). When content is dropped to fit, truncated is true and more says what to fetch with get_run_section.",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "run_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "type": "string"
+                    },
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "run_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "type": "string"
+                    },
+                    "duration_s": {
+                      "type": "number"
+                    },
+                    "validity": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string"
+                        },
+                        "findings": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "severity": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "fix": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "severity",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "slo": {
+                      "type": "object",
+                      "properties": {
+                        "pass": {
+                          "type": "boolean"
+                        },
+                        "configured": {
+                          "type": "boolean"
+                        },
+                        "breaches": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "runner": {
+                                "type": "string"
+                              },
+                              "metric": {
+                                "type": "string"
+                              },
+                              "budget": {
+                                "type": "number"
+                              },
+                              "actual": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "runner",
+                              "metric",
+                              "budget",
+                              "actual"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "pass",
+                        "configured"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "verdict": {
+                      "type": "object",
+                      "properties": {
+                        "bottleneck": {
+                          "type": "string"
+                        },
+                        "confidence": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "evidence": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "caveat": {
+                          "type": "string"
+                        },
+                        "next_steps": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "bottleneck",
+                        "confidence",
+                        "summary"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "incidents": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "class": {
+                            "type": "string"
+                          },
+                          "start_s": {
+                            "type": "number"
+                          },
+                          "duration_s": {
+                            "type": "number"
+                          },
+                          "runners_hot": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "culprit": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "app_p99_ms": {
+                            "type": "number"
+                          },
+                          "culprit_p99_ms": {
+                            "type": "number"
+                          },
+                          "lead_buckets": {
+                            "type": "integer"
+                          },
+                          "corroboration": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "class",
+                          "start_s",
+                          "duration_s",
+                          "culprit"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "runners": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "n": {
+                            "type": "integer"
+                          },
+                          "achieved_rps": {
+                            "type": "number"
+                          },
+                          "error_ratio": {
+                            "type": "number"
+                          },
+                          "p50_ms": {
+                            "type": "number"
+                          },
+                          "p95_ms": {
+                            "type": "number"
+                          },
+                          "p99_ms": {
+                            "type": "number"
+                          },
+                          "service_p99_ms": {
+                            "type": "number"
+                          },
+                          "client_wait_p99_ms": {
+                            "type": "number"
+                          },
+                          "dropped_ratio": {
+                            "type": "number"
+                          },
+                          "top_errors": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind",
+                          "n",
+                          "achieved_rps",
+                          "error_ratio",
+                          "p50_ms",
+                          "p95_ms",
+                          "p99_ms",
+                          "service_p99_ms",
+                          "client_wait_p99_ms",
+                          "dropped_ratio"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "correlation": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "storage": {
+                            "type": "string"
+                          },
+                          "rho": {
+                            "type": "number"
+                          },
+                          "lag_buckets": {
+                            "type": "integer"
+                          },
+                          "n_buckets": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "storage",
+                          "rho",
+                          "lag_buckets"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "telemetry": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "string"
+                          },
+                          "available": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "highlights": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "available"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "recommendations": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "why": {
+                            "type": "string"
+                          },
+                          "action": {
+                            "type": "string"
+                          },
+                          "overrides": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "priority": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "why",
+                          "action"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "artifacts": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "run_dir": {
+                          "type": "string"
+                        },
+                        "result": {
+                          "type": "string"
+                        },
+                        "report": {
+                          "type": "string"
+                        },
+                        "events": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "more": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "sections": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "dropped": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "hint"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "run_id",
+                    "status",
+                    "validity",
+                    "slo",
+                    "verdict",
+                    "truncated"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Get a run's digest"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Get a run's digest",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/get_run_section": {
+      "post": {
+        "description": "Return one page of one section of a finished run's result: incidents, per-label summaries, the per-bucket timeline of a runner, telemetry samples, or capacity levels. Use it only when the digest is not enough - when it was truncated, or to check the evidence behind a verdict in a specific time window. Pages keep each response small.",
+        "operationId": "get_run_section",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "description": "The run."
+                  },
+                  "section": {
+                    "type": "string",
+                    "description": "incidents: every incident in full. labels: per-label summaries. timeline: per-bucket numbers for one runner. telemetry: samples from one sampler. levels: capacity-search levels.",
+                    "enum": [
+                      "incidents",
+                      "labels",
+                      "timeline",
+                      "telemetry",
+                      "levels"
+                    ]
+                  },
+                  "runner": {
+                    "type": "string",
+                    "description": "For timeline, the runner (default: the application runner). For telemetry, the sampler: generator, postgres, mysql or redis. For labels, restricts to one runner."
+                  },
+                  "from_s": {
+                    "type": "number",
+                    "description": "For timeline and telemetry, the start of the window in seconds from the run start."
+                  },
+                  "to_s": {
+                    "type": "number",
+                    "description": "For timeline and telemetry, the end of the window; 0 means the end of the run."
+                  },
+                  "page": {
+                    "type": "integer",
+                    "description": "Page number, from 1.",
+                    "minimum": 0
+                  },
+                  "page_size": {
+                    "type": "integer",
+                    "description": "Items per page, 1 to 200 (default 50).",
+                    "minimum": 0,
+                    "maximum": 200
+                  }
+                },
+                "required": [
+                  "run_id",
+                  "section"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "section": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "pages": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "items": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": true
+                    }
+                  },
+                  "required": [
+                    "run_id",
+                    "section",
+                    "page",
+                    "pages",
+                    "total",
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Get one section of a run's result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Get one section of a run's result",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/get_run_status": {
+      "post": {
+        "description": "Return a run's state without waiting: pending, running, completed, interrupted, aborted, failed or lost, with progress, heartbeat and exit code. Use wait_for_run instead when you want to block until it finishes.",
+        "operationId": "get_run_status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "description": "A run id from start_run or list_runs; a unique prefix or suffix of one also works."
+                  }
+                },
+                "required": [
+                  "run_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "type": "string"
+                    },
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "run_dir": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "phase": {
+                      "type": "string"
+                    },
+                    "pid": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "type": "string"
+                    },
+                    "finished_at": {
+                      "type": "string"
+                    },
+                    "heartbeat": {
+                      "type": "string"
+                    },
+                    "progress": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "elapsed_ms": {
+                          "type": "number"
+                        },
+                        "total_ms": {
+                          "type": "number"
+                        },
+                        "ratio": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "elapsed_ms",
+                        "total_ms",
+                        "ratio"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "exit_code": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ]
+                    },
+                    "error": true,
+                    "actor": {
+                      "type": "string"
+                    },
+                    "config_hash": {
+                      "type": "string"
+                    },
+                    "detached": {
+                      "type": "boolean"
+                    },
+                    "stop_requested": {
+                      "type": "boolean"
+                    },
+                    "artifacts": {
+                      "type": "object",
+                      "properties": {
+                        "run_dir": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "events": {
+                          "type": "string"
+                        },
+                        "result": {
+                          "type": "string"
+                        },
+                        "digest": {
+                          "type": "string"
+                        },
+                        "report": {
+                          "type": "string"
+                        },
+                        "config": {
+                          "type": "string"
+                        },
+                        "log": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "run_dir",
+                        "state",
+                        "events",
+                        "result",
+                        "digest",
+                        "report",
+                        "config",
+                        "log"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "run_id",
+                    "run_dir",
+                    "status",
+                    "created_at",
+                    "artifacts"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Get a run's status"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Get a run's status",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/list_runs": {
+      "post": {
+        "description": "List runs newest first with status and exit code. Use it to find a run_id, or to see whether a run is already active before starting another - only one test should load a target at a time.",
+        "operationId": "list_runs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "description": "At most this many runs, newest first (default 20).",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runs": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "run_id": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "exit_code": {
+                            "type": [
+                              "null",
+                              "integer"
+                            ]
+                          },
+                          "actor": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "run_id",
+                          "status",
+                          "created_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "runs"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "List runs"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "List runs",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/plan_run": {
+      "post": {
+        "description": "Describe exactly what a run would do - offered load per runner, targets, SLO budgets and the effective safety envelope - without contacting anything. Call it before start_run to confirm the load and the targets are what the human agreed to.",
+        "operationId": "plan_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": [
+                      "string",
+                      "object"
+                    ],
+                    "description": "The configuration itself: a YAML string, or the same document as a JSON object. Give this or config_path, not both. tracepoint schema config describes every field; scaffold_config writes a starter."
+                  },
+                  "config_path": {
+                    "type": "string",
+                    "description": "Path to a configuration file, relative to the directory the server was started in. Give this or config, not both."
+                  },
+                  "overrides": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "--set style overrides applied on top, as path=value; list items are addressable by name, as in db.queries[by-id].weight=5. A digest's recommendations carry these ready to use."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "config_path": {
+                      "type": "string"
+                    },
+                    "overrides": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "duration_s": {
+                      "type": "number"
+                    },
+                    "bucket_s": {
+                      "type": "number"
+                    },
+                    "warmup_s": {
+                      "type": "number"
+                    },
+                    "arrival": {
+                      "type": "string"
+                    },
+                    "seed": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ],
+                      "minimum": 0
+                    },
+                    "runners": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "driver": {
+                            "type": "string"
+                          },
+                          "executor": {
+                            "type": "string"
+                          },
+                          "profile": {
+                            "type": "string"
+                          },
+                          "peak_rps": {
+                            "type": "number"
+                          },
+                          "offered_operations": {
+                            "type": "number"
+                          },
+                          "labels": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "writes": {
+                            "type": [
+                              "null",
+                              "array"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind",
+                          "executor",
+                          "profile",
+                          "peak_rps",
+                          "offered_operations",
+                          "labels"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "targets": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "slo": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "runner": {
+                            "type": "string"
+                          },
+                          "metric": {
+                            "type": "string"
+                          },
+                          "budget": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "runner",
+                          "metric",
+                          "budget"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "safety": {
+                      "type": "object",
+                      "properties": {
+                        "allow_writes": {
+                          "type": "boolean"
+                        },
+                        "allow_dangerous": {
+                          "type": "boolean"
+                        },
+                        "allow_insecure_tls": {
+                          "type": "boolean"
+                        },
+                        "allow_targets": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "max_rate_per_runner": {
+                          "type": [
+                            "null",
+                            "number"
+                          ]
+                        },
+                        "max_duration": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "allow_writes",
+                        "allow_dangerous",
+                        "allow_insecure_tls"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "warnings": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "fix": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "total_offered_operations": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "duration_s",
+                    "bucket_s",
+                    "arrival",
+                    "runners",
+                    "targets",
+                    "safety",
+                    "total_offered_operations"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Plan a run without running it"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Plan a run without running it",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/scaffold_config": {
+      "post": {
+        "description": "Write a commented starter configuration for an application and, optionally, the database and Redis it uses, probing each storage tier alongside the application so a slowdown can be attributed. Use it when there is no configuration yet. It contacts nothing. Ask the human which targets and environments are allowed and what the SLOs are before running anything it produces.",
+        "operationId": "scaffold_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base_url": {
+                    "type": "string",
+                    "description": "Base URL of the application under test, such as http://127.0.0.1:8080. Use an environment reference like ${BASE_URL} to keep hosts out of the file."
+                  },
+                  "paths": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Request paths to load, such as /api/items. Safe (read-only) endpoints only unless a human has said writes are fine. Defaults to /."
+                  },
+                  "db_driver": {
+                    "type": "string",
+                    "description": "Database to probe alongside: postgres, mysql or sqlite. Omit for none.",
+                    "enum": [
+                      "postgres",
+                      "mysql",
+                      "sqlite"
+                    ]
+                  },
+                  "db_dsn_env": {
+                    "type": "string",
+                    "description": "Name of the environment variable holding the database DSN, such as DATABASE_URL. The file references it; the value is never written."
+                  },
+                  "redis_addr_env": {
+                    "type": "string",
+                    "description": "Name of the environment variable holding the Redis address, such as REDIS_ADDR. Omit for no Redis probe."
+                  },
+                  "rate": {
+                    "type": "number",
+                    "description": "Application requests per second. Defaults to 20; start low and raise it once a smoke run is valid.",
+                    "minimum": 0
+                  },
+                  "duration": {
+                    "type": "string",
+                    "description": "Run length as a Go duration, such as 30s or 3m. Defaults to 30s."
+                  }
+                },
+                "required": [
+                  "base_url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "config_yaml": {
+                      "type": "string",
+                      "description": "A commented starter configuration. Pass it to validate_config, then plan_run, before start_run."
+                    },
+                    "notes": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "What the starter assumed and what to check."
+                    }
+                  },
+                  "required": [
+                    "config_yaml"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Write a starter configuration"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Write a starter configuration",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/start_run": {
+      "post": {
+        "description": "Validate, preflight and start a run in the background, returning its run_id at once; load tests outlive tool calls. Configuration errors, policy refusals and preflight failures are returned synchronously, before any load. Then call wait_for_run until it finishes and read get_run_digest. Start with a short smoke run (30s) and only run one test against a target at a time. It generates real load against the targets.",
+        "operationId": "start_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": [
+                      "string",
+                      "object"
+                    ],
+                    "description": "The configuration itself: a YAML string, or the same document as a JSON object. Give this or config_path, not both. tracepoint schema config describes every field; scaffold_config writes a starter."
+                  },
+                  "config_path": {
+                    "type": "string",
+                    "description": "Path to a configuration file, relative to the directory the server was started in. Give this or config, not both."
+                  },
+                  "overrides": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "--set style overrides applied on top, as path=value; list items are addressable by name, as in db.queries[by-id].weight=5. A digest's recommendations carry these ready to use."
+                  },
+                  "seed": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ],
+                    "description": "Seed for every random choice; recorded in the result. Reuse a run's seed to reproduce it.",
+                    "minimum": 0
+                  },
+                  "allow_invalid": {
+                    "type": "boolean",
+                    "description": "Resolve an invalid run to exit 0 instead of 4. Almost never what you want: an invalid run measured the generator, not the target."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string",
+                      "description": "Pass to wait_for_run, get_run_status, get_run_digest and stop_run."
+                    },
+                    "run_dir": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "pid": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "run_id",
+                    "run_dir",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Start a load test"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Start a load test",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": false,
+          "open_world": true,
+          "read_only": false
+        }
+      }
+    },
+    "/v1/ops/stop_run": {
+      "post": {
+        "description": "Ask a running test to stop. It stops offering load within half a second, drains in-flight work and writes a partial result marked interrupted, which wait_for_run then returns. Use it when a run is no longer wanted or is hurting a target; stopping an ended run does nothing.",
+        "operationId": "stop_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "description": "A run id from start_run or list_runs; a unique prefix or suffix of one also works."
+                  }
+                },
+                "required": [
+                  "run_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "stopped": {
+                      "type": "boolean",
+                      "description": "True when a stop was requested; false when the run had already ended."
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "run_id",
+                    "stopped",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Stop a run gracefully"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Stop a run gracefully",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": false
+        }
+      }
+    },
+    "/v1/ops/validate_config": {
+      "post": {
+        "description": "Load and validate a configuration under this server's policy without contacting anything. Every problem is reported at once, each with a stable code, a JSON path, a line and a fix. Call it after writing or changing a configuration and before plan_run or start_run.",
+        "operationId": "validate_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": [
+                      "string",
+                      "object"
+                    ],
+                    "description": "The configuration itself: a YAML string, or the same document as a JSON object. Give this or config_path, not both. tracepoint schema config describes every field; scaffold_config writes a starter."
+                  },
+                  "config_path": {
+                    "type": "string",
+                    "description": "Path to a configuration file, relative to the directory the server was started in. Give this or config, not both."
+                  },
+                  "overrides": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "--set style overrides applied on top, as path=value; list items are addressable by name, as in db.queries[by-id].weight=5. A digest's recommendations carry these ready to use."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    },
+                    "runners": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "duration": {
+                      "type": "string"
+                    },
+                    "targets": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "warnings": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "fix": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "effective": {
+                      "description": "The configuration after defaults, with secrets redacted."
+                    }
+                  },
+                  "required": [
+                    "valid",
+                    "runners",
+                    "duration",
+                    "targets",
+                    "effective"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Validate a configuration"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Validate a configuration",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
+    "/v1/ops/wait_for_run": {
+      "post": {
+        "description": "Wait up to timeout_s seconds (at most 50) for a run to finish. Returns finished=false with the current state if it is still going - call again - or the final state, exit code and digest when done. Read the digest's validity first: an invalid run measured the generator, not the target, and its verdict must not be reported.",
+        "operationId": "wait_for_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "description": "The run to wait for."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "How long to wait in this call, 1 to 50 seconds (default 45). If the run is still going when it expires, call again.",
+                    "minimum": 0,
+                    "maximum": 50
+                  }
+                },
+                "required": [
+                  "run_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "finished": {
+                      "type": "boolean",
+                      "description": "True when the run reached a final status. False means it is still going: call wait_for_run again."
+                    },
+                    "state": {
+                      "type": "object",
+                      "properties": {
+                        "schema_version": {
+                          "type": "string"
+                        },
+                        "run_id": {
+                          "type": "string"
+                        },
+                        "run_dir": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "phase": {
+                          "type": "string"
+                        },
+                        "pid": {
+                          "type": "integer"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "started_at": {
+                          "type": "string"
+                        },
+                        "finished_at": {
+                          "type": "string"
+                        },
+                        "heartbeat": {
+                          "type": "string"
+                        },
+                        "progress": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "properties": {
+                            "elapsed_ms": {
+                              "type": "number"
+                            },
+                            "total_ms": {
+                              "type": "number"
+                            },
+                            "ratio": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "elapsed_ms",
+                            "total_ms",
+                            "ratio"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "exit_code": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        },
+                        "error": true,
+                        "actor": {
+                          "type": "string"
+                        },
+                        "config_hash": {
+                          "type": "string"
+                        },
+                        "detached": {
+                          "type": "boolean"
+                        },
+                        "stop_requested": {
+                          "type": "boolean"
+                        },
+                        "artifacts": {
+                          "type": "object",
+                          "properties": {
+                            "run_dir": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string"
+                            },
+                            "events": {
+                              "type": "string"
+                            },
+                            "result": {
+                              "type": "string"
+                            },
+                            "digest": {
+                              "type": "string"
+                            },
+                            "report": {
+                              "type": "string"
+                            },
+                            "config": {
+                              "type": "string"
+                            },
+                            "log": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "run_dir",
+                            "state",
+                            "events",
+                            "result",
+                            "digest",
+                            "report",
+                            "config",
+                            "log"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "schema_version",
+                        "run_id",
+                        "run_dir",
+                        "status",
+                        "created_at",
+                        "artifacts"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "exit_code": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ],
+                      "description": "The run's exit code, once finished: 0 valid and within budget, 1 budget breached, 3 failed or cut short, 4 invalid."
+                    },
+                    "digest": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "type": "string"
+                        },
+                        "run_id": {
+                          "type": "string"
+                        },
+                        "run_name": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "started_at": {
+                          "type": "string"
+                        },
+                        "duration_s": {
+                          "type": "number"
+                        },
+                        "validity": {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string"
+                            },
+                            "findings": {
+                              "type": [
+                                "null",
+                                "array"
+                              ],
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "severity": {
+                                    "type": "string"
+                                  },
+                                  "message": {
+                                    "type": "string"
+                                  },
+                                  "fix": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "code",
+                                  "severity",
+                                  "message"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "state"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "slo": {
+                          "type": "object",
+                          "properties": {
+                            "pass": {
+                              "type": "boolean"
+                            },
+                            "configured": {
+                              "type": "boolean"
+                            },
+                            "breaches": {
+                              "type": [
+                                "null",
+                                "array"
+                              ],
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "runner": {
+                                    "type": "string"
+                                  },
+                                  "metric": {
+                                    "type": "string"
+                                  },
+                                  "budget": {
+                                    "type": "number"
+                                  },
+                                  "actual": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "runner",
+                                  "metric",
+                                  "budget",
+                                  "actual"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "pass",
+                            "configured"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "verdict": {
+                          "type": "object",
+                          "properties": {
+                            "bottleneck": {
+                              "type": "string"
+                            },
+                            "confidence": {
+                              "type": "string"
+                            },
+                            "summary": {
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "type": [
+                                "null",
+                                "array"
+                              ],
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "caveat": {
+                              "type": "string"
+                            },
+                            "next_steps": {
+                              "type": [
+                                "null",
+                                "array"
+                              ],
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "bottleneck",
+                            "confidence",
+                            "summary"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "incidents": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "class": {
+                                "type": "string"
+                              },
+                              "start_s": {
+                                "type": "number"
+                              },
+                              "duration_s": {
+                                "type": "number"
+                              },
+                              "runners_hot": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "culprit": {
+                                "type": [
+                                  "null",
+                                  "string"
+                                ]
+                              },
+                              "app_p99_ms": {
+                                "type": "number"
+                              },
+                              "culprit_p99_ms": {
+                                "type": "number"
+                              },
+                              "lead_buckets": {
+                                "type": "integer"
+                              },
+                              "corroboration": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "class",
+                              "start_s",
+                              "duration_s",
+                              "culprit"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "runners": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              },
+                              "n": {
+                                "type": "integer"
+                              },
+                              "achieved_rps": {
+                                "type": "number"
+                              },
+                              "error_ratio": {
+                                "type": "number"
+                              },
+                              "p50_ms": {
+                                "type": "number"
+                              },
+                              "p95_ms": {
+                                "type": "number"
+                              },
+                              "p99_ms": {
+                                "type": "number"
+                              },
+                              "service_p99_ms": {
+                                "type": "number"
+                              },
+                              "client_wait_p99_ms": {
+                                "type": "number"
+                              },
+                              "dropped_ratio": {
+                                "type": "number"
+                              },
+                              "top_errors": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "kind",
+                              "n",
+                              "achieved_rps",
+                              "error_ratio",
+                              "p50_ms",
+                              "p95_ms",
+                              "p99_ms",
+                              "service_p99_ms",
+                              "client_wait_p99_ms",
+                              "dropped_ratio"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "correlation": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "storage": {
+                                "type": "string"
+                              },
+                              "rho": {
+                                "type": "number"
+                              },
+                              "lag_buckets": {
+                                "type": "integer"
+                              },
+                              "n_buckets": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "storage",
+                              "rho",
+                              "lag_buckets"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "telemetry": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "source": {
+                                "type": "string"
+                              },
+                              "available": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "highlights": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "source",
+                              "available"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "recommendations": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "why": {
+                                "type": "string"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "overrides": {
+                                "type": [
+                                  "null",
+                                  "array"
+                                ],
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "priority": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "why",
+                              "action"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "artifacts": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "properties": {
+                            "run_dir": {
+                              "type": "string"
+                            },
+                            "result": {
+                              "type": "string"
+                            },
+                            "report": {
+                              "type": "string"
+                            },
+                            "events": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "truncated": {
+                          "type": "boolean"
+                        },
+                        "more": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "properties": {
+                            "hint": {
+                              "type": "string"
+                            },
+                            "sections": {
+                              "type": [
+                                "null",
+                                "array"
+                              ],
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "dropped": {
+                              "type": [
+                                "null",
+                                "array"
+                              ],
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "hint"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "description": "The run's digest, once finished - the same document get_run_digest returns.",
+                      "required": [
+                        "schema_version",
+                        "run_id",
+                        "status",
+                        "validity",
+                        "slo",
+                        "verdict",
+                        "truncated"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "finished",
+                    "state"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Wait for a run to finish"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Wait for a run to finish",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ]
+}

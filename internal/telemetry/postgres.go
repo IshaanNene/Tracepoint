@@ -19,6 +19,8 @@ import (
 //	sessions_waiting_lock  client backends whose wait_event_type is Lock
 //	sessions_tracepoint    client backends whose application_name marks them as ours
 //	sessions_other         client backends that are not ours: the application's
+//	waiting_by_type        client backends waiting, by wait_event_type (Lock, LWLock,
+//	                       IO, Client, IPC, ...)
 //	locks_waiting          lock requests not yet granted
 //	commits, rollbacks, deadlocks, temp_bytes   deltas since the previous sample
 //	cache_hit_ratio        buffer hits / (hits + reads) over the interval
@@ -108,7 +110,12 @@ func (p *postgres) Sample(ctx context.Context, _ time.Duration) (Sample, error) 
 	if err != nil {
 		return nil, fmt.Errorf("reading statistics: %w", err)
 	}
+	byType, err := p.waits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	s := Sample{
+		"waiting_by_type":       byType,
 		"sessions_active":       active,
 		"sessions_idle_in_tx":   idleTx,
 		"sessions_waiting_lock": waitLock,
@@ -131,6 +138,34 @@ func (p *postgres) Sample(ctx context.Context, _ time.Duration) (Sample, error) 
 		}
 	}
 	return s, nil
+}
+
+// waits counts client backends by what they are waiting on. Only a present wait
+// event is counted: a backend doing work has none.
+func (p *postgres) waits(ctx context.Context) (map[string]any, error) {
+	rows, err := p.conn.QueryContext(ctx, `
+SELECT wait_event_type, count(*)
+FROM pg_stat_activity
+WHERE backend_type = 'client backend' AND pid <> pg_backend_pid() AND wait_event_type IS NOT NULL
+GROUP BY wait_event_type
+ORDER BY wait_event_type`)
+	if err != nil {
+		return nil, fmt.Errorf("reading wait events: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]any{}
+	for rows.Next() {
+		var kind string
+		var n int64
+		if err := rows.Scan(&kind, &n); err != nil {
+			return nil, fmt.Errorf("scanning wait events: %w", err)
+		}
+		out[kind] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading wait events: %w", err)
+	}
+	return out, nil
 }
 
 // Finish reads the top statements by total execution time, when asked to and when the

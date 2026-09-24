@@ -67,7 +67,7 @@ func TestPostgresSampler(t *testing.T) {
 			}
 		}
 	})
-	hasKeys(t, got, "sessions_active", "sessions_waiting_lock", "sessions_tracepoint", "sessions_other",
+	hasKeys(t, got, "waiting_by_type", "sessions_active", "sessions_waiting_lock", "sessions_tracepoint", "sessions_other",
 		"locks_waiting", "commits", "rollbacks", "deadlocks", "temp_bytes")
 	if c, _ := got["commits"].(float64); c < 1 {
 		t.Errorf("commits = %v after twenty statements", got["commits"])
@@ -104,6 +104,9 @@ func TestPostgresSampler(t *testing.T) {
 	}
 	if v, _ := locked["sessions_waiting_lock"].(int64); v < 1 {
 		t.Errorf("sessions_waiting_lock = %v while a session waits", locked["sessions_waiting_lock"])
+	}
+	if byType, _ := locked["waiting_by_type"].(map[string]any); byType["Lock"] == nil {
+		t.Errorf("waiting_by_type = %v while a session waits on a lock", locked["waiting_by_type"])
 	}
 	_ = tx.Rollback()
 	if e := <-waiter; e != nil {

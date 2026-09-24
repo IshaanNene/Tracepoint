@@ -12,6 +12,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -23,6 +24,7 @@ import (
 	"github.com/IshaanNene/Tracepoint/internal/clock"
 	"github.com/IshaanNene/Tracepoint/internal/config"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
+	"github.com/IshaanNene/Tracepoint/internal/events"
 	"github.com/IshaanNene/Tracepoint/internal/executor"
 	"github.com/IshaanNene/Tracepoint/internal/metrics"
 	"github.com/IshaanNene/Tracepoint/internal/policy"
@@ -62,6 +64,8 @@ type Options struct {
 	// Thresholds are --<runner>-threshold values in milliseconds, the hot-bucket
 	// threshold for a runner with no SLO p99.
 	Thresholds map[string]float64
+	// Events receives the live event stream. Nil means nobody is listening.
+	Events *events.Emitter
 }
 
 // Progress is a live view of a run, for the terminal or an event stream.
@@ -102,6 +106,8 @@ type boundRunner struct {
 	stages    []result.Stage
 	targets   []result.Target
 	recorder  metrics.Recorder
+	// lastSealed is the highest bucket already reported as sealed.
+	lastSealed int64
 }
 
 // New prepares an engine. It does not touch the network; Run does.
@@ -145,6 +151,20 @@ func (e *Engine) RunID() string { return e.opts.RunID }
 // Seed is the seed actually in use, whether configured or drawn.
 func (e *Engine) Seed() uint64 { return e.seed }
 
+// Preflight checks everything Run would check before generating load - targets
+// resolved and judged by the policy, every runner connected and every statement
+// prepared - and then releases what it opened. It is how a detached run reports a
+// typo synchronously before going to the background.
+//
+// An Engine is used once: call Preflight or Run on it, not both.
+func (e *Engine) Preflight(ctx context.Context) error {
+	if err := e.build(); err != nil {
+		return err
+	}
+	defer e.closeRunners()
+	return e.preflight(ctx)
+}
+
 // Run performs the whole run and returns the result document.
 //
 // Cancelling ctx is a graceful stop: arrivals cease, in-flight work is given the
@@ -180,8 +200,12 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	}
 	defer stopTelemetry()
 
+	e.emitPreflight()
+
 	e.start = e.clk.Now()
 	startedAt := e.start
+	e.opts.Events.SetStart(e.start)
+	e.emitStarted()
 	// Every runner measures from this one instant. That is what puts all three tiers
 	// on a single timeline and makes "they went slow together" an observation.
 	for _, br := range e.runners {
@@ -215,7 +239,12 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 
 	watch := context.AfterFunc(ctx, func() {
 		status.Store(result.StatusInterrupted)
-		interrupted.Store("stopped before the configured duration elapsed")
+		reason := "stopped before the configured duration elapsed"
+		// A caller that says why - a stop request, a signal - is quoted.
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+			reason = cause.Error()
+		}
+		interrupted.Store(reason)
 	})
 	defer watch()
 
@@ -265,6 +294,7 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	for _, br := range e.runners {
 		br.collector.Finish(elapsed)
 	}
+	e.emitSealed()
 
 	return e.buildResult(startedAt, elapsed, loadString(&status), loadString(&interrupted), series)
 }
@@ -340,7 +370,7 @@ func (e *Engine) build() error {
 			return err
 		}
 
-		br := &boundRunner{name: name, runner: r, collector: col}
+		br := &boundRunner{name: name, runner: r, collector: col, lastSealed: -1}
 		// Every outcome passes the guard on its way to the collector, so a target that
 		// is clearly failing stops the run rather than being hammered unattended.
 		br.recorder = &guardedRecorder{inner: col, guard: e.guard, abort: e.onAbort}
@@ -495,6 +525,7 @@ func (e *Engine) startSweeper(ctx context.Context) func() {
 				for _, br := range e.runners {
 					br.collector.SealThrough(elapsed)
 				}
+				e.emitSealed()
 				if e.opts.Progress != nil && elapsed-lastProgress >= time.Second {
 					lastProgress = elapsed
 					e.reportProgress(elapsed)

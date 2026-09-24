@@ -566,6 +566,26 @@ func (c *Collector) sealDeadline(idx int64) time.Duration {
 	return time.Duration(idx+1)*c.cfg.BucketWidth + c.cfg.SealDelay
 }
 
+// SealedAfter returns copies of the sealed buckets with an index above after, in index
+// order - what a live event stream reports as each bucket closes. Buckets seal in
+// index order, so a caller that remembers the last index it saw never misses one.
+func (c *Collector) SealedAfter(after int64) []BucketSummary {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var idx []int64
+	for i := range c.buckets {
+		if i > after {
+			idx = append(idx, i)
+		}
+	}
+	sort.Slice(idx, func(a, b int) bool { return idx[a] < idx[b] })
+	out := make([]BucketSummary, 0, len(idx))
+	for _, i := range idx {
+		out = append(out, *c.buckets[i])
+	}
+	return out
+}
+
 // OpenBuckets reports how many buckets still hold live sketches.
 func (c *Collector) OpenBuckets() int {
 	n := 0

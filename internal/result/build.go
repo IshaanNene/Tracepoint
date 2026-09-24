@@ -118,7 +118,6 @@ func buildConfig(in BuildInput) (*Config, error) {
 	if err != nil {
 		return nil, errs.Wrap(errs.CodeInternal, err, "encoding the effective configuration")
 	}
-	sum := sha256.Sum256(canonical)
 
 	// Round-trip through JSON so the embedded copy is plain data rather than Go types,
 	// which keeps the document readable and schema-checkable.
@@ -127,7 +126,7 @@ func buildConfig(in BuildInput) (*Config, error) {
 		return nil, errs.Wrap(errs.CodeInternal, err, "normalising the effective configuration")
 	}
 	return &Config{
-		Hash:       "sha256:" + hex.EncodeToString(sum[:]),
+		Hash:       hashOf(canonical),
 		Effective:  plain,
 		SourcePath: in.SourcePath,
 		Overrides:  in.Overrides,
@@ -179,6 +178,22 @@ func buildRunner(in RunnerInput) Runner {
 		out.Executor.DroppedRatio = float64(st.Dropped) / float64(st.Offered)
 	}
 	return out
+}
+
+// ConfigHash is the hash result.json records for a configuration: SHA-256 of its
+// canonical JSON encoding. The run store and the audit log use it before the result
+// exists, so a run can be matched to its configuration from the moment it starts.
+func ConfigHash(cfg any) (string, error) {
+	canonical, err := json.Marshal(cfg)
+	if err != nil {
+		return "", errs.Wrap(errs.CodeInternal, err, "encoding the configuration")
+	}
+	return hashOf(canonical), nil
+}
+
+func hashOf(canonical []byte) string {
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func convertSummary(s metrics.OpSummary) OpSummary {

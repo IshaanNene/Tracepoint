@@ -45,6 +45,9 @@ type Options struct {
 	// at the old length and the configuration contradicts itself. The caller finishes
 	// with Finalise.
 	Raw bool
+
+	// keepRefs leaves ${ENV} references as written, for EffectiveYAML.
+	keepRefs bool
 }
 
 // envRef matches ${NAME} and ${NAME:-default}.
@@ -70,9 +73,12 @@ func Load(ctx context.Context, src Source, opts Options) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	interpolated, err := Interpolate(raw, opts.Lookup)
-	if err != nil {
-		return nil, err
+	interpolated := raw
+	if !opts.keepRefs {
+		interpolated, err = Interpolate(raw, opts.Lookup)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var doc yaml.Node

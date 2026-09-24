@@ -65,6 +65,21 @@ func setPath(v reflect.Value, full, rest, value string) *errs.Error {
 		}
 		v = v.Elem()
 	}
+	// A string map - headers, tags - is addressed by key, and a new key is allowed:
+	// supplying a header a stored configuration had to redact is exactly this.
+	if v.Kind() == reflect.Map && v.Type().Key().Kind() == reflect.String && v.Type().Elem().Kind() == reflect.String {
+		if remainder != "" || hasIndex {
+			return errs.New(errs.CodeSetUnknownPath, "--set %s: %s is a single value, not a section", full, name)
+		}
+		if v.IsNil() {
+			if !v.CanSet() {
+				return unknownPath(full, name, nil)
+			}
+			v.Set(reflect.MakeMap(v.Type()))
+		}
+		v.SetMapIndex(reflect.ValueOf(name), reflect.ValueOf(value))
+		return nil
+	}
 	if v.Kind() != reflect.Struct {
 		return unknownPath(full, name, nil)
 	}

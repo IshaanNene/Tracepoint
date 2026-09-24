@@ -251,6 +251,19 @@ func (c *Config) Targets() []string {
 			add(hostPort(addr))
 		}
 	}
+	// A sampler with its own dsn connects somewhere the runners may not, and the
+	// policy has to judge that host as well: read-only is not the same as allowed.
+	if t := c.Telemetry; t != nil {
+		if t.Postgres != nil && t.Postgres.Enabled && t.Postgres.DSN != "" {
+			add(hostFromDSN("postgres", t.Postgres.DSN))
+		}
+		if t.MySQL != nil && t.MySQL.Enabled && t.MySQL.DSN != "" {
+			add(hostFromDSN("mysql", t.MySQL.DSN))
+		}
+		if t.Redis != nil && t.Redis.Enabled && t.Redis.DSN != "" {
+			add(redisHost(t.Redis.DSN))
+		}
+	}
 	sort.Strings(out)
 	return out
 }
@@ -318,4 +331,15 @@ func asCoded(err error) *errs.Error {
 		return typed
 	}
 	return errs.New(errs.CodePolicyDenied, "%s", err.Error())
+}
+
+// redisHost reads the host from a redis:// URL or a bare host:port.
+func redisHost(dsn string) string {
+	if strings.Contains(dsn, "://") {
+		if u, err := url.Parse(dsn); err == nil {
+			return u.Hostname()
+		}
+		return ""
+	}
+	return hostPort(dsn)
 }

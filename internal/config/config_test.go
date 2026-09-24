@@ -325,6 +325,54 @@ http:
 	}
 }
 
+// A sampler borrows its runner's connection settings, so enabling one with neither a
+// matching runner nor its own dsn is refused at load time rather than discovered as an
+// empty telemetry panel after the run.
+func TestTelemetryNeedsSomethingToConnectTo(t *testing.T) {
+	t.Parallel()
+	_, err := load(t, `
+version: 1
+run: { duration: 10s }
+http: { executor: { rate: 1 }, requests: [{ name: a, url: u }] }
+db: { driver: mysql, dsn: "u@tcp(127.0.0.1)/d", executor: { rate: 1 }, queries: [{ name: q, sql: "SELECT 1" }] }
+telemetry: { postgres: true, mysql: true, interval: 0s }
+`, nil)
+	if err == nil {
+		t.Fatal("a postgres sampler beside a mysql runner has nowhere to connect")
+	}
+	var typed *errs.Error
+	if !errors.As(err, &typed) {
+		t.Fatalf("not a coded error: %v", err)
+	}
+	joined := typed.Message
+	for _, c := range typed.Causes {
+		joined += "\n" + c.Path + " " + c.Message
+	}
+	if !strings.Contains(joined, "/telemetry/postgres/dsn") || !strings.Contains(joined, "/telemetry/interval") {
+		t.Fatalf("problems = %s", joined)
+	}
+	if strings.Contains(joined, "/telemetry/mysql") {
+		t.Fatalf("the mysql sampler borrows the mysql runner's dsn: %s", joined)
+	}
+}
+
+// A sampler with its own dsn connects somewhere, and the policy has to judge it.
+func TestTelemetryDSNIsATarget(t *testing.T) {
+	t.Parallel()
+	cfg := mustLoad(t, `
+version: 1
+run: { duration: 10s }
+http: { executor: { rate: 1 }, requests: [{ name: a, url: "http://127.0.0.1/" }] }
+telemetry:
+  postgres: { dsn: "postgres://tp@stats.internal:5432/app" }
+  redis: { dsn: "redis://cache.internal:6379/0" }
+`, nil)
+	got := strings.Join(cfg.Targets(), ",")
+	if got != "127.0.0.1,cache.internal,stats.internal" {
+		t.Fatalf("targets = %s", got)
+	}
+}
+
 func TestTelemetryAcceptsBothForms(t *testing.T) {
 	t.Parallel()
 	cfg := mustLoad(t, `
@@ -332,8 +380,9 @@ version: 1
 run: { duration: 10s }
 http: { executor: { rate: 1 }, requests: [{ name: a, url: u }] }
 telemetry:
-  postgres: true
-  redis: { enabled: true, interval: 2s, latency: true }
+  postgres: { enabled: true, dsn: "postgres://tp@127.0.0.1/app" }
+  redis: { enabled: true, interval: 2s, latency: true, dsn: "127.0.0.1:6379" }
+  mysql: false
 `, nil)
 
 	if cfg.Telemetry.Postgres == nil || !cfg.Telemetry.Postgres.Enabled {

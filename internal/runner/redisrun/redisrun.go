@@ -155,11 +155,6 @@ func (r *Runner) compile(src *config.Command) (*command, error) {
 }
 
 func (r *Runner) clientOptions() (*redis.UniversalOptions, error) {
-	addrs := r.cfg.Addrs
-	if len(addrs) == 0 && r.cfg.Addr != "" {
-		addrs = []string{r.cfg.Addr}
-	}
-
 	workers := r.cfg.Executor.MaxInFlight
 	if workers <= 0 {
 		workers = 16
@@ -171,21 +166,35 @@ func (r *Runner) clientOptions() (*redis.UniversalOptions, error) {
 		}
 		minIdle = p.MinIdle
 	}
-
-	opts := &redis.UniversalOptions{
-		Addrs:        addrs,
-		Username:     r.cfg.Username,
-		Password:     r.cfg.Password,
-		DB:           r.cfg.DB,
-		PoolSize:     poolSize,
-		MinIdleConns: minIdle,
-		// The client name shows up in CLIENT LIST, so an operator can see which
-		// connections belong to the test.
-		ClientName: "tracepoint-" + r.deps.RunID,
+	// The client name shows up in CLIENT LIST, so an operator can see which
+	// connections belong to the test.
+	opts, err := ClientOptions(r.cfg, "tracepoint-"+r.deps.RunID, poolSize)
+	if err != nil {
+		return nil, err
 	}
-	switch r.cfg.Mode {
+	opts.MinIdleConns = minIdle
+	return opts, nil
+}
+
+// ClientOptions builds go-redis options for a configured deployment: single node,
+// sentinel or cluster, with its credentials and TLS. The telemetry sampler uses it
+// too, so that it reaches exactly the server the runner is loading.
+func ClientOptions(cfg *config.Redis, clientName string, poolSize int) (*redis.UniversalOptions, error) {
+	addrs := cfg.Addrs
+	if len(addrs) == 0 && cfg.Addr != "" {
+		addrs = []string{cfg.Addr}
+	}
+	opts := &redis.UniversalOptions{
+		Addrs:      addrs,
+		Username:   cfg.Username,
+		Password:   cfg.Password,
+		DB:         cfg.DB,
+		PoolSize:   poolSize,
+		ClientName: clientName,
+	}
+	switch cfg.Mode {
 	case "sentinel":
-		opts.MasterName = r.cfg.MasterName
+		opts.MasterName = cfg.MasterName
 	case "cluster":
 		// UniversalClient picks cluster mode from having several addresses, but a
 		// single-node cluster is legitimate and must not silently become a plain client.
@@ -193,12 +202,12 @@ func (r *Runner) clientOptions() (*redis.UniversalOptions, error) {
 	default:
 	}
 
-	if r.cfg.TLS != nil {
-		cfg, err := buildTLS(r.cfg.TLS)
+	if cfg.TLS != nil {
+		t, err := buildTLS(cfg.TLS)
 		if err != nil {
 			return nil, err
 		}
-		opts.TLSConfig = cfg
+		opts.TLSConfig = t
 	}
 	return opts, nil
 }

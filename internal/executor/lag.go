@@ -20,6 +20,9 @@ import (
 // (spec §5.5).
 type lagTracker struct {
 	sketch *ddsketch.DDSketch
+	// window holds only the lag since it was last read, so the generator's health
+	// sampler can show when the generator fell behind rather than only whether it did.
+	window *ddsketch.DDSketch
 	n      int64
 	sum    float64
 	max    float64
@@ -30,7 +33,10 @@ func newLagTracker() (*lagTracker, error) {
 	if err != nil {
 		return nil, errs.Wrap(errs.CodeInternal, err, "building the dispatch-lag sketch")
 	}
-	return &lagTracker{sketch: ddsketch.NewDDSketch(m, store.NewDenseStore(), store.NewDenseStore())}, nil
+	return &lagTracker{
+		sketch: ddsketch.NewDDSketch(m, store.NewDenseStore(), store.NewDenseStore()),
+		window: ddsketch.NewDDSketch(m, store.NewDenseStore(), store.NewDenseStore()),
+	}, nil
 }
 
 func (l *lagTracker) add(d time.Duration) {
@@ -40,6 +46,9 @@ func (l *lagTracker) add(d time.Duration) {
 	}
 	if l.sketch.Add(ms) != nil {
 		return
+	}
+	if l.window.Add(ms) != nil {
+		return // same value and bounds as above, so unreachable; checked all the same
 	}
 	l.n++
 	l.sum += ms
@@ -65,4 +74,18 @@ func (l *lagTracker) quantiles() metrics.Quantiles {
 	}
 	q.P50, q.P90, q.P95, q.P99, q.P999 = read(0.5), read(0.9), read(0.95), read(0.99), read(0.999)
 	return q
+}
+
+// takeWindow returns the p99 lag since the previous call and starts a new window. It
+// returns ok false when nothing was dispatched in the window.
+func (l *lagTracker) takeWindow() (p99 float64, ok bool) {
+	if l.window.GetCount() == 0 {
+		return 0, false
+	}
+	v, err := l.window.GetValueAtQuantile(0.99)
+	l.window.Clear()
+	if err != nil || v < 0 {
+		return 0, false
+	}
+	return v, true
 }

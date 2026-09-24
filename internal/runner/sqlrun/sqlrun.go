@@ -246,11 +246,17 @@ func sanitiseComment(s string) string {
 // Postgres surfaces it in pg_stat_activity, which is what lets the telemetry sampler
 // separate TracePoint's own sessions from the application's.
 func (r *Runner) tagDSN(dsn string) (string, error) {
-	tag := "tracepoint/" + r.deps.RunID
 	if r.cfg.TagSessions != nil && !*r.cfg.TagSessions {
 		return dsn, nil
 	}
-	if r.driver != "postgres" {
+	return TagDSN(r.driver, dsn, "tracepoint/"+r.deps.RunID)
+}
+
+// TagDSN sets a Postgres application_name on a DSN in either of its two forms, unless
+// the operator already set one. Other drivers have no equivalent and are returned
+// unchanged.
+func TagDSN(driver, dsn, tag string) (string, error) {
+	if config.NormaliseDriver(driver) != "postgres" {
 		return dsn, nil
 	}
 	if strings.Contains(dsn, "application_name") {
@@ -269,6 +275,12 @@ func (r *Runner) tagDSN(dsn string) (string, error) {
 		return u.String(), nil
 	}
 	return dsn + " application_name='" + tag + "'", nil
+}
+
+// SQLDriver is the database/sql driver name registered for a normalised driver.
+func SQLDriver(driver string) (string, bool) {
+	d, ok := drivers[config.NormaliseDriver(driver)]
+	return d, ok
 }
 
 // configurePool sizes the pool. The default is the worker count, because a pool

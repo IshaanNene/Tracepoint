@@ -259,5 +259,13 @@ func (e *ArrivalRate) Stats() Stats {
 	}
 }
 
+// RecentLag is the p99 dispatch lag, in milliseconds, since the previous call. ok is
+// false when nothing was dispatched in between.
+func (e *ArrivalRate) RecentLag() (p99 float64, ok bool) {
+	e.lagMu.Lock()
+	defer e.lagMu.Unlock()
+	return e.lag.takeWindow()
+}
+
 // InFlight is the current number of operations in progress, for live progress output.
 func (e *ArrivalRate) InFlight() int64 { return e.inFlight.Load() }

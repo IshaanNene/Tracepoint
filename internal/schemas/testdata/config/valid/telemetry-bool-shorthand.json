@@ -11,6 +11,34 @@
       "rate": 5
     }
   },
+  "db": {
+    "driver": "postgres",
+    "dsn": "postgres://tp@127.0.0.1:5432/app",
+    "executor": {
+      "rate": 5
+    },
+    "queries": [
+      {
+        "name": "one",
+        "type": "read",
+        "sql": "SELECT 1"
+      }
+    ]
+  },
+  "redis": {
+    "addr": "127.0.0.1:6379",
+    "executor": {
+      "rate": 5
+    },
+    "commands": [
+      {
+        "name": "ping",
+        "cmd": [
+          "PING"
+        ]
+      }
+    ]
+  },
   "telemetry": {
     "postgres": true,
     "redis": true

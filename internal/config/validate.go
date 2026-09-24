@@ -29,6 +29,9 @@ func (c *Config) Validate() error {
 	if c.Redis != nil {
 		c.validateRedis(add)
 	}
+	if c.Telemetry != nil {
+		c.validateTelemetry(add)
+	}
 
 	if len(problems) == 0 {
 		return nil
@@ -378,6 +381,37 @@ func (c *Config) validateRedis(add func(*errs.Error)) {
 // checkWeight rejects a weight that was written but cannot be used. Absent is fine and
 // means 1; zero or negative means the item can never be picked, which is a mistake
 // worth reporting rather than a way to disable something.
+// validateTelemetry checks that every enabled sampler has something to connect to. A
+// sampler borrows its runner's connection settings unless it is given its own dsn, so
+// a postgres sampler beside a mysql runner, say, has nowhere to go.
+func (c *Config) validateTelemetry(add func(*errs.Error)) {
+	t := c.Telemetry
+	if t.Interval != nil && *t.Interval <= 0 {
+		add(invalid("/telemetry/interval", "the sampling interval must be positive, got %s", *t.Interval))
+	}
+	check := func(name string, s *Sampler, has bool, hint string) {
+		if s == nil || !s.Enabled {
+			return
+		}
+		if s.Interval != nil && *s.Interval <= 0 {
+			add(invalid("/telemetry/"+name+"/interval", "the sampling interval must be positive, got %s", *s.Interval))
+		}
+		if s.DSN == "" && !has {
+			add(missing("/telemetry/"+name+"/dsn", "the %s sampler has nothing to connect to", name).WithHint("%s", hint))
+		}
+	}
+	driver := ""
+	if c.DB != nil {
+		driver = NormaliseDriver(c.DB.Driver)
+	}
+	check("postgres", t.Postgres, driver == "postgres",
+		"set telemetry.postgres.dsn, or use it alongside a db section whose driver is postgres")
+	check("mysql", t.MySQL, driver == "mysql",
+		"set telemetry.mysql.dsn, or use it alongside a db section whose driver is mysql")
+	check("redis", t.Redis, c.Redis != nil,
+		"set telemetry.redis.dsn, or use it alongside a redis section")
+}
+
 func checkWeight(w *float64, path string) *errs.Error {
 	if w == nil {
 		return nil

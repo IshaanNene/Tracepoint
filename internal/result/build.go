@@ -44,6 +44,7 @@ type BuildInput struct {
 	Runners     []RunnerInput
 	Warnings    []Finding
 	Artifacts   *Artifacts
+	Telemetry   *Telemetry
 }
 
 // Build assembles the result document, everything but its analysis.
@@ -98,6 +99,7 @@ func Build(in BuildInput) (*Result, error) {
 		return nil, err
 	}
 	r.Config = cfgDoc
+	r.Telemetry = in.Telemetry
 	// Analysis is deliberately not done here. It is a pure function of this document
 	// and lives in internal/analysis, which reads these types; the caller fills
 	// r.Analysis once the document is complete.

@@ -32,6 +32,7 @@ import (
 	"github.com/IshaanNene/Tracepoint/internal/runner/redisrun"
 	"github.com/IshaanNene/Tracepoint/internal/runner/sqlrun"
 	"github.com/IshaanNene/Tracepoint/internal/schedule"
+	"github.com/IshaanNene/Tracepoint/internal/telemetry"
 )
 
 // sealInterval is how often sealed buckets are swept up. Frequent enough that memory
@@ -163,6 +164,22 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 		return nil, err
 	}
 
+	// Samplers connect now too, for the same reason. One that cannot is reported as
+	// unavailable in the result; it never stops the run.
+	loop, err := e.openTelemetry(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var series []telemetry.Series
+	stopped := false
+	stopTelemetry := func() {
+		if !stopped {
+			stopped = true
+			series = loop.Stop(context.WithoutCancel(ctx))
+		}
+	}
+	defer stopTelemetry()
+
 	e.start = e.clk.Now()
 	startedAt := e.start
 	// Every runner measures from this one instant. That is what puts all three tiers
@@ -203,6 +220,9 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	defer watch()
 
 	sweeper := e.startSweeper(workCtx)
+	// Samplers run on the same origin as every runner, and keep sampling through the
+	// drain: a stall that outlasts the arrivals is still part of the story.
+	loop.Start(workCtx, e.start)
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(e.runners))
@@ -233,6 +253,7 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	cutOffWork()
 	sweeper()
 	elapsed := e.clk.Now().Sub(e.start)
+	stopTelemetry()
 
 	close(errCh)
 	for err := range errCh {
@@ -245,7 +266,7 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 		br.collector.Finish(elapsed)
 	}
 
-	return e.buildResult(startedAt, elapsed, loadString(&status), loadString(&interrupted))
+	return e.buildResult(startedAt, elapsed, loadString(&status), loadString(&interrupted), series)
 }
 
 // loadString reads a string written by the signal watcher on another goroutine.
@@ -509,7 +530,7 @@ func (e *Engine) closeRunners() {
 	}
 }
 
-func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status, interrupted string) (*result.Result, error) {
+func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status, interrupted string, series []telemetry.Series) (*result.Result, error) {
 	// An abort overrides whatever the run thought it was doing: the guard stopped it.
 	if reason, ok := e.aborted.Load().(string); ok && reason != "" {
 		status = result.StatusAborted
@@ -521,7 +542,8 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 		Overrides: e.opts.Overrides, Seed: e.seed,
 		StartedAt: startedAt, FinishedAt: e.clk.Now(), Elapsed: elapsed,
 		Status: status, Interrupted: interrupted,
-		Warnings: append([]result.Finding(nil), e.opts.Warnings...),
+		Warnings:  append([]result.Finding(nil), e.opts.Warnings...),
+		Telemetry: telemetryResult(series),
 	}
 	for _, br := range e.runners {
 		ri := result.RunnerInput{

@@ -91,11 +91,11 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `internal/policy` | The human-granted envelope; tighten-only merge; target classification (ADR-006) |
 | `internal/template` | The mini-template language, compiled once, with a static dataflow check |
 | `internal/metrics` | Outcome model, error taxonomy, sketches, sharded recorders, bucket sealing (ADR-002) |
-| `internal/telemetry` | Samplers: generator, Postgres, MySQL, Redis |
-| `internal/analysis` | Hot buckets, incidents, culprits, lagged correlation, verdicts, validity, SLOs, strain (ADR-005) |
+| `internal/telemetry` | The sampler registry and loop; samplers for the generator, Postgres, MySQL and Redis. Each runs on its own goroutine and connection so a stalled datastore stalls only its own sampler |
+| `internal/analysis` | Hot buckets, incidents, culprits, lagged correlation, verdicts, validity, SLOs, strain (ADR-005). Pure functions of `result.json`; the rules and constants are in [`METHODOLOGY.md`](METHODOLOGY.md) |
 | `internal/capacity` | Auto-ramp search, boundary confirmation, USL fit |
 | `internal/compare` | Quantile confidence intervals, gates, incident diff |
-| `internal/result` | The result model, schema versions, migrations, digest builder (ADR-004) |
+| `internal/result` | The result model, schema versions, migrations, the digest builder and its recommendations (ADR-004). `resulttest` builds synthetic runs for tests |
 | `internal/runstore` | Run directories, state, events, detach/status/wait/stop, audit log |
 | `internal/ops` | The one operation registry; MCP, REST and `capabilities` are generated from it (ADR-008) |
 | `internal/adapters/{mcp,rest}` | Protocol plumbing, no logic |
@@ -103,7 +103,9 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `internal/detect` | Project detection and OpenAPI import |
 | `internal/schemas` | The JSON Schemas themselves. They live inside the package because `go:embed` cannot reach outside it, which is what guarantees the binary ships the contract it enforces |
 | `internal/buildinfo` | Version stamped at link time |
-| `tools/faultbox` | Demo app with fault injection, for the known-answer suite |
+| `internal/schemas/schematest` | Validates an emitted document against its embedded contract; imported only by tests |
+| `internal/testenv` | Starts Postgres, MySQL and Redis containers for the `integration` and `e2e` suites; compiled only under those tags |
+| `tools/faultbox` | Demo app over Postgres and Redis whose faults are injected at offsets from the run's first request, for the known-answer suite (§10) |
 
 ## Extension points — exactly three
 

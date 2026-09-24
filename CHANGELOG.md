@@ -17,6 +17,17 @@ before it is removed in the next major.
 
 ### Added
 
+- Phase 3: analysis. Hot buckets by the absolute and relative rules, incidents
+  classified `correlated`, `storage_only`, `app_only`, `client_limited` or
+  `unobserved`, culprit ranking by lead time, severity and telemetry corroboration
+  with ties reported, whole-run lagged Spearman correlation, templated verdicts with
+  evidence and a confidence rubric, and the Little's Law and telemetry validity
+  checks. Telemetry samplers for the generator, Postgres, MySQL and Redis on the
+  shared clock. `tracepoint digest` with a character budget and machine-applicable
+  recommendations. `--http-threshold`, `--db-threshold`, `--redis-threshold`. Templates
+  in HTTP urls, bodies and headers. `X-Tracepoint-Preflight` on preflight requests.
+  The faultbox demo application, the known-answer suite (`make e2e`) and the
+  integration suite (`make integration`) against real Postgres, MySQL and Redis.
 - Phase 2: storage and safety. SQL and Redis runners that probe the tier while they
   load it, the template mini-language, `--set` overrides, the policy envelope with
   write and destructive-statement guards, secret redaction, the abort guard, target
@@ -30,7 +41,14 @@ before it is removed in the next major.
   Schemas with fixtures, the error and finding registry, the package skeleton, the
   build gate and CI.
 
+### Fixed
+
+- The SQL and Redis runners counted reads and writes with a data race between
+  workers, found by the known-answer suite.
+
 ### Changed
 
+- A degraded run caps verdict confidence at medium rather than forcing it to low: a
+  degraded run is usable with its caveat attached, and every loopback run is degraded.
 - The minimum Go toolchain is 1.26.6, the first release with no `govulncheck` findings
   against the standard-library packages this tool calls.

@@ -37,6 +37,11 @@ make help          # all targets
 
 Run a single test: `go test -race -run TestName ./internal/schedule/`.
 
+`make integration` and `make e2e` need a running Docker daemon (testcontainers pulls
+`postgres:16-alpine`, `mysql:8.4` and `redis:7-alpine`); in a fresh cloud container
+start one with `dockerd &`. `make check` never needs Docker. `govulncheck` needs to
+reach `vuln.go.dev`. The known-answer suite takes about five minutes.
+
 ## Layout
 
 `cmd/tracepoint` is wiring only. The public Go API is at the module root

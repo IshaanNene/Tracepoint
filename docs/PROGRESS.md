@@ -10,13 +10,99 @@
 | --- | --- | --- |
 | 0 | Plan: spec stored, ADRs, JSON Schemas, docs, skeleton, Makefile, lint, CI stub | Complete, approved |
 | 1 | Engine slice: clock, schedule, sketches, recorder, arrival-rate executor, HTTP runner, `result.json` v1, CLI table, JSON output, exit codes | Complete, approved |
-| 2 | Storage and safety: SQL and Redis runners, templates, `--set`, policy, guards, redaction, preflight, `doctor`, `--dry-run` | **Complete — awaiting approval** |
-| 3 | Analysis: telemetry samplers, incidents, culprits, correlation, verdicts, validity, digest; faultbox and the known-answer suite | Not started |
+| 2 | Storage and safety: SQL and Redis runners, templates, `--set`, policy, guards, redaction, preflight, `doctor`, `--dry-run` | Complete, approved |
+| 3 | Analysis: telemetry samplers, incidents, culprits, correlation, verdicts, validity, digest; faultbox and the known-answer suite | **Complete — awaiting approval** |
 | 4 | Agent interfaces: run store, detach, events, audit log, ops registry, `capabilities`, MCP, REST, parity tests | Not started |
 | 5 | Human interfaces: HTML, Markdown, JUnit, `report`, TUI | Not started |
 | 6 | Journeys and onboarding: vus executor, extract/expect, feeders, think time, cookies, strain finder, `quick`, `init` | Not started |
 | 7 | Capacity and compare: auto-ramp, USL, confidence intervals, gates, incident diff | Not started |
 | 8 | Integration and release: Go facade, `tracepointtest`, Action, Docker, skill, contract CI, fuzzing, soak, GoReleaser, agent dogfood | Not started |
+
+## Phase 3 — complete
+
+The tool now answers the question it exists for. Every verdict class is proved end to
+end: faults with known causes are injected into a real application over real Postgres
+and Redis at known times, and TracePoint names each one - class, culprit, window
+within one bucket, verdict and exit code. The rules and every constant are in
+[`METHODOLOGY.md`](METHODOLOGY.md).
+
+### Delivered
+
+| Deliverable | Where | Evidence |
+| --- | --- | --- |
+| Hot buckets, incidents, culprit ranking, lagged Spearman, templated verdicts, confidence rubric (ADR-005) | `internal/analysis` | Written test-first; 92.2% coverage; rapid properties for Spearman (bounded, symmetric, invariant under monotonic transforms), the median, and episode merging (idempotent, covering, non-overlapping); every scenario's output validated against the result schema |
+| Validity: `TELEMETRY_UNAVAILABLE`, `LITTLES_LAW_INCONSISTENT`, saturation judged against steady buckets | `internal/analysis/validity.go` | `validity_test.go` |
+| Telemetry: sampler registry and loop; generator, Postgres, MySQL and Redis samplers | `internal/telemetry` | Unit tests for the loop's isolation and fail-soft behaviour; integration tests against each real server, including a waiting lock seen by both lock signals and a role without `pg_read_all_stats` |
+| Digest with a character budget and machine-applicable recommendations; `tracepoint digest` | `internal/result/digest.go`, `recommend.go`, `internal/cli/digest.go` | Golden file; every digest schema-validated; the budget holds for the bytes actually written; the sentinel secret never appears in a digest |
+| Incident table and tracking line in the terminal summary | `internal/render/cli` | `incidents.golden` |
+| `--http-threshold`, `--db-threshold`, `--redis-threshold` | `internal/cli/commands.go` | |
+| faultbox | `tools/faultbox` | Faults scheduled from the run's first load request; records when each actually held |
+| Known-answer suite (`make e2e`) | `tools/faultbox/knownanswer_e2e_test.go` | Six scenarios, below |
+| Integration suite (`make integration`) | `internal/telemetry`, `internal/cli` | Three-tier runs against Postgres and MySQL with every sampler on |
+
+### The known answers
+
+Each assertion is against faultbox's own record of when the fault held. All six pass
+under `-race`, in three consecutive full runs of the suite (plus the scenario-by-scenario runs while building it).
+
+| Fault | Required and observed |
+| --- | --- |
+| none | zero incidents, verdict `none`, exit 0 |
+| `LOCK TABLE items` for 5s at 20s | `correlated` over buckets 20-25, culprit `db` alone, postgres `locks_waiting` 0 -> 301, exit 1 |
+| `LOCK TABLE probe_only` for 5s | `storage_only` over 20-24, exit 0 |
+| 400ms handler delay for 5s | `app_only` over 20-25, verdict `app`, exit 1 |
+| Redis `DEBUG SLEEP 3` | `correlated` over 20-23, culprit `redis`, corroborated by the sampler's own INFO stalling (`sample_ms`), exit 1 |
+| 300ms endpoint, `max_in_flight: 2` | `CLIENT_CAPPED`, invalid, `client_limited` incident, verdict `client`, exit 4, no incident blames the target |
+
+### Evidence
+
+```
+$ make check
+  fmt, vet, golangci-lint (0 issues), race tests, contract checks: all pass
+  govulncheck: could not run - vuln.go.dev is not reachable from this environment (CI runs it)
+$ make integration           # exit 0
+$ make e2e                   # exit 0, twice in a row: tools/faultbox 257s, 257s
+$ make cover                 # total: 79.4% of statements
+  analysis 92.2%  schedule 92.5%  metrics 92.4%   (the 85% gate)
+  telemetry 53% in the unit run; its Postgres and MySQL paths are covered by make integration
+```
+
+### Bugs found, and fixed
+
+| Found by | Bug | Fix |
+| --- | --- | --- |
+| The known-answer suite under `-race` | The SQL and Redis runners incremented their read and write tallies from every worker with no synchronisation. Unit tests drove `Do` sequentially and never saw it | Atomic counters, and a concurrent regression test per runner that reproduces the race on the old code |
+| The same | faultbox encoded a fault in its reply while the goroutine applying it was already mutating it | Reply with a copy taken under the lock |
+| The first real run | Redis throughput fell during a *database* lock, because the application stopped reaching the cache, and counted as corroboration for Redis | Throughput is no longer a signal: it cannot tell cause from victim |
+| The first real run | HTTP templates were refused with a message pointing at phase 2; the phase-2 template engine had never been wired into the HTTP runner | Templates compile at load and render per request |
+| Wiring those templates | A templated url would have been missing from `Targets()`, so its host would have escaped the policy check | Hosts are fixed at load; a template in a scheme or host is refused |
+| The uniform-breach test | A strong whole-run correlation alone named a storage tier as the bottleneck | It is reported but never promoted to an answer on its own (ADR-005 §4) |
+| Flaky runner tests (half of runs) | The harnesses scheduled iterations at fixed offsets, so fast local operations completed before they were due and their response time clamped to zero | Each iteration is due when dispatched |
+
+### Deviations from the spec, and judgements it left open
+
+| Item | Reason |
+| --- | --- |
+| "±1 bucket tolerance" read literally: two runners' episodes join when shifting one by a bucket makes them overlap, so adjacent episodes join and a one-bucket gap does not | Within a runner, gaps of one bucket are bridged, as §5.5 says separately |
+| "client_wait dominates" means client wait is at least half the response p99, at the median over the runner's hot buckets, and an incident is `client_limited` only when every hot runner is dominated | The spec gives no number. Requiring every hot runner keeps a database stall that also backs up our queue a database finding |
+| A runner is sufficient over an incident when at least half its buckets there are eligible | The spec requires sufficient data without defining it over a window |
+| Culprit score `2·lead + log2(severity) + corroboration`, ties within 0.25 | The spec orders the signals but gives no weights |
+| A degraded run caps confidence at medium, where phase 1 forced it to low | Every loopback run is degraded; forcing low would make every local verdict a non-finding |
+| `tracepoint digest` takes a result path or run directory; run ids are resolved in phase 4 | The run store is phase 4 |
+| The client-limited scenario uses 5s buckets | Two workers against a 300ms endpoint complete ~6 operations a second, so every 1s bucket would be insufficient. Wider buckets keep the evidence bar; lowering `min_samples` would not |
+| A/A and +50ms compare scenarios, and the MCP/REST flow | Phases 7 and 4, which build what they test |
+| Strain finder | Phase 6 per §12 |
+| Preflight requests carry `X-Tracepoint-Preflight: 1` | Additive. Lets a target leave them out of its metrics, and lets faultbox start its clock at the first real request |
+
+### Risks carried into phase 4
+
+| Risk | Mitigation |
+| --- | --- |
+| Every run on one machine is degraded by the same-host caveat, which caps confidence at medium | Correct, and the reason is stated. Phase 8 dogfooding and the Compose demo will say how to run the generator elsewhere |
+| The relative rule could flag scheduling noise on a heavily loaded CI host as an incident in a clean run | Its three guards; the clean scenario passed every run here; nightly CI runs the suite five times |
+| Signal thresholds were calibrated on faultbox | They are one table in `signals.go`, documented, and only corroborate - no signal alone makes a verdict |
+| Postgres 15+ flushes statistics about once a second, so counter deltas can lag a bucket | The lock and session signals are read live from `pg_stat_activity` and `pg_locks`; the window is padded by a bucket |
+| `govulncheck` could not reach vuln.go.dev from this environment | CI runs it; nothing in this phase changed a direct dependency except adding testcontainers-go, which is test-only |
 
 ## Phase 2 — complete
 

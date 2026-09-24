@@ -76,10 +76,12 @@ func (h *harness) do(t *testing.T, n int) {
 	t.Helper()
 	rng := rand.New(rand.NewPCG(9, 9))
 	for i := range n {
+		// Due the moment it is dispatched: a fixed offset would put the intended
+		// time in the future whenever the operation is faster than the spacing.
+		now := h.deps.Elapsed()
 		it := runner.Iteration{
-			Index: int64(i), Intended: time.Duration(i) * time.Millisecond,
-			Dispatched:  time.Duration(i) * time.Millisecond,
-			WorkerStart: h.deps.Elapsed(), Rand: rng,
+			Index: int64(i), Intended: now, Dispatched: now,
+			WorkerStart: now, Rand: rng,
 		}
 		if err := h.runner.Do(context.Background(), &it, h.collector); err != nil {
 			t.Fatalf("Do: %v", err)

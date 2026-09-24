@@ -61,10 +61,14 @@ func (h *harness) do(t *testing.T, n int) {
 	t.Helper()
 	rng := rand.New(rand.NewPCG(1, 2))
 	for i := range n {
+		// Each iteration is due the moment it is dispatched. Scheduling them at fixed
+		// offsets instead would put an intended time in the future whenever the
+		// server answers faster than the spacing, and a response that completes
+		// before it was due has no meaningful response time.
+		now := h.deps.Elapsed()
 		it := runner.Iteration{
-			Index: int64(i), Intended: time.Duration(i) * time.Millisecond,
-			Dispatched:  time.Duration(i) * time.Millisecond,
-			WorkerStart: h.deps.Elapsed(), Rand: rng,
+			Index: int64(i), Intended: now, Dispatched: now,
+			WorkerStart: now, Rand: rng,
 		}
 		if err := h.runner.Do(context.Background(), &it, h.collector); err != nil {
 			t.Fatalf("Do: %v", err)

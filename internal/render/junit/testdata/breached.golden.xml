@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="tracepoint" tests="4" failures="1" errors="0" time="60.000">
+  <testsuite name="tracepoint.checkout" tests="4" failures="1" errors="0" skipped="0" time="60.000" timestamp="2026-09-24T10:00:00Z">
+    <properties>
+      <property name="run_id" value="20260924T100000Z-abc123"></property>
+      <property name="seed" value="7"></property>
+      <property name="status" value="completed"></property>
+      <property name="validity" value="valid"></property>
+      <property name="bottleneck" value="db"></property>
+      <property name="confidence" value="medium"></property>
+      <property name="tool_version" value="test"></property>
+      <property name="result_schema" value="1.1"></property>
+    </properties>
+    <testcase name="run completed" classname="tracepoint.run" time="60.000"></testcase>
+    <testcase name="validity valid" classname="tracepoint.validity" time="0.000"></testcase>
+    <testcase name="http p99 &lt;= 250ms" classname="tracepoint.slo.http" time="0.000">
+      <failure message="http p99 was 900ms, over its budget of 250ms" type="SLO_BREACH">http p99 was 900ms, over its budget of 250ms</failure>
+    </testcase>
+    <testcase name="http error_rate &lt;= 1.0%" classname="tracepoint.slo.http" time="0.000"></testcase>
+    <system-out>Verdict: The database tier is the most likely source of the slowdown. In the one incident that reached users, covering 6s, application latency rose together with the db probe, which went hot first, by 1 bucket. No server-side telemetry corroborated it. (bottleneck db, confidence medium)&#xA;Incident inc-1: correlated, 20s to 26s, culprit db&#xA;http: 6000 operations, 0% errors, p99 20ms&#xA;db: 6000 operations, 0% errors, p99 2.0ms&#xA;redis: 6000 operations, 0% errors, p99 0.50ms&#xA;Shared-clock correlation shows association, not causation.</system-out>
+  </testsuite>
+</testsuites>

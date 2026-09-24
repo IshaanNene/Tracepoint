@@ -16,6 +16,7 @@ import (
 	"github.com/IshaanNene/Tracepoint/internal/config"
 	"github.com/IshaanNene/Tracepoint/internal/engine"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
+	"github.com/IshaanNene/Tracepoint/internal/plan"
 	"github.com/IshaanNene/Tracepoint/internal/policy"
 	clirender "github.com/IshaanNene/Tracepoint/internal/render/cli"
 	"github.com/IshaanNene/Tracepoint/internal/runstore"
@@ -129,11 +130,11 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 		if lerr != nil {
 			return lerr
 		}
-		plan := BuildPlan(cfg, effective, warnings, req.SourcePath, opts.overrides)
+		p := plan.Build(cfg, effective, warnings, req.SourcePath, opts.overrides)
 		if g.json() {
-			return writeJSON(env.Stdout, plan)
+			return writeJSON(env.Stdout, p)
 		}
-		if _, werr := io.WriteString(env.Stdout, RenderPlan(plan)); werr != nil {
+		if _, werr := io.WriteString(env.Stdout, plan.Render(p)); werr != nil {
 			return errs.Wrap(errs.CodeIOWriteFailed, werr, "writing the plan")
 		}
 		return nil

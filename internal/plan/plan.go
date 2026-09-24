@@ -1,4 +1,4 @@
-package cli
+package plan
 
 import (
 	"fmt"
@@ -16,24 +16,24 @@ import (
 // that was flagged, before committing. Everything in it is derived from the
 // configuration and the policy; nothing is contacted.
 type Plan struct {
-	RunID        string        `json:"run_id,omitempty"`
-	ConfigPath   string        `json:"config_path,omitempty"`
-	Overrides    []string      `json:"overrides,omitempty"`
-	DurationS    float64       `json:"duration_s"`
-	BucketS      float64       `json:"bucket_s"`
-	WarmupS      float64       `json:"warmup_s,omitempty"`
-	Arrival      string        `json:"arrival"`
-	Seed         *uint64       `json:"seed,omitempty"`
-	Runners      []PlanRunner  `json:"runners"`
-	Targets      []string      `json:"targets"`
-	SLO          []PlanSLO     `json:"slo,omitempty"`
-	Safety       PlanSafety    `json:"safety"`
-	Warnings     []PlanWarning `json:"warnings,omitempty"`
-	TotalOffered float64       `json:"total_offered_operations"`
+	RunID        string    `json:"run_id,omitempty"`
+	ConfigPath   string    `json:"config_path,omitempty"`
+	Overrides    []string  `json:"overrides,omitempty"`
+	DurationS    float64   `json:"duration_s"`
+	BucketS      float64   `json:"bucket_s"`
+	WarmupS      float64   `json:"warmup_s,omitempty"`
+	Arrival      string    `json:"arrival"`
+	Seed         *uint64   `json:"seed,omitempty"`
+	Runners      []Runner  `json:"runners"`
+	Targets      []string  `json:"targets"`
+	SLO          []SLO     `json:"slo,omitempty"`
+	Safety       Safety    `json:"safety"`
+	Warnings     []Warning `json:"warnings,omitempty"`
+	TotalOffered float64   `json:"total_offered_operations"`
 }
 
-// PlanRunner is one tier's share of the plan.
-type PlanRunner struct {
+// Runner is one tier's share of the plan.
+type Runner struct {
 	Name     string   `json:"name"`
 	Kind     string   `json:"kind"`
 	Driver   string   `json:"driver,omitempty"`
@@ -45,15 +45,15 @@ type PlanRunner struct {
 	Writes   []string `json:"writes,omitempty"`
 }
 
-// PlanSLO is one configured budget.
-type PlanSLO struct {
+// SLO is one configured budget.
+type SLO struct {
 	Runner string `json:"runner"`
 	Metric string `json:"metric"`
 	Budget string `json:"budget"`
 }
 
-// PlanSafety is the envelope the run would execute under.
-type PlanSafety struct {
+// Safety is the envelope the run would execute under.
+type Safety struct {
 	AllowWrites      bool     `json:"allow_writes"`
 	AllowDangerous   bool     `json:"allow_dangerous"`
 	AllowInsecureTLS bool     `json:"allow_insecure_tls"`
@@ -62,15 +62,15 @@ type PlanSafety struct {
 	MaxDuration      *string  `json:"max_duration,omitempty"`
 }
 
-// PlanWarning is something worth knowing before starting.
-type PlanWarning struct {
+// Warning is something worth knowing before starting.
+type Warning struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Fix     string `json:"fix,omitempty"`
 }
 
-// BuildPlan describes what a configuration would do under a policy.
-func BuildPlan(cfg *config.Config, effective policy.Policy, warnings []config.Warning, path string, overrides []string) Plan {
+// Build describes what a configuration would do under a policy.
+func Build(cfg *config.Config, effective policy.Policy, warnings []config.Warning, path string, overrides []string) Plan {
 	p := Plan{
 		ConfigPath: path,
 		Overrides:  overrides,
@@ -80,7 +80,7 @@ func BuildPlan(cfg *config.Config, effective policy.Policy, warnings []config.Wa
 		Arrival:    cfg.Run.Arrival,
 		Seed:       cfg.Run.Seed,
 		Targets:    cfg.Targets(),
-		Safety: PlanSafety{
+		Safety: Safety{
 			AllowWrites:      effective.AllowWrites,
 			AllowDangerous:   effective.AllowDangerous,
 			AllowInsecureTLS: effective.AllowInsecureTLS,
@@ -96,7 +96,7 @@ func BuildPlan(cfg *config.Config, effective policy.Policy, warnings []config.Wa
 		if ex == nil {
 			continue
 		}
-		pr := PlanRunner{
+		pr := Runner{
 			Name: name, Kind: config.Kind(name),
 			Executor: ex.Type, Profile: describeProfile(ex),
 			PeakRPS: config.PeakRate(ex), Labels: cfg.Labels(name),
@@ -113,18 +113,18 @@ func BuildPlan(cfg *config.Config, effective policy.Policy, warnings []config.Wa
 	for _, name := range []string{"http", "db", "redis"} {
 		t := cfg.SLO.For(name)
 		if t.P95 != nil {
-			p.SLO = append(p.SLO, PlanSLO{Runner: name, Metric: "p95", Budget: t.P95.String()})
+			p.SLO = append(p.SLO, SLO{Runner: name, Metric: "p95", Budget: t.P95.String()})
 		}
 		if t.P99 != nil {
-			p.SLO = append(p.SLO, PlanSLO{Runner: name, Metric: "p99", Budget: t.P99.String()})
+			p.SLO = append(p.SLO, SLO{Runner: name, Metric: "p99", Budget: t.P99.String()})
 		}
 		if t.ErrorRate != nil {
-			p.SLO = append(p.SLO, PlanSLO{Runner: name, Metric: "error_rate", Budget: fmt.Sprintf("%.2f%%", *t.ErrorRate*100)})
+			p.SLO = append(p.SLO, SLO{Runner: name, Metric: "error_rate", Budget: fmt.Sprintf("%.2f%%", *t.ErrorRate*100)})
 		}
 	}
 
 	for _, w := range warnings {
-		p.Warnings = append(p.Warnings, PlanWarning{Code: w.Code, Message: w.Message, Fix: w.Fix})
+		p.Warnings = append(p.Warnings, Warning{Code: w.Code, Message: w.Message, Fix: w.Fix})
 	}
 	return p
 }
@@ -162,8 +162,8 @@ func describeProfile(e *config.Executor) string {
 	return strings.Join(parts, ", then ")
 }
 
-// RenderPlan writes the plan for a person.
-func RenderPlan(p Plan) string {
+// Render writes the plan for a person.
+func Render(p Plan) string {
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "\nPlan for %s\n", p.ConfigPath)
 	fmt.Fprintf(b, "  %s over %s, %s buckets", p.Arrival, dur(p.DurationS), dur(p.BucketS))

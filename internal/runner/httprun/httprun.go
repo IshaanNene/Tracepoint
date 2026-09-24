@@ -8,11 +8,13 @@
 package httprun
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -26,6 +28,7 @@ import (
 	"github.com/IshaanNene/Tracepoint/internal/errs"
 	"github.com/IshaanNene/Tracepoint/internal/metrics"
 	"github.com/IshaanNene/Tracepoint/internal/runner"
+	"github.com/IshaanNene/Tracepoint/internal/template"
 )
 
 // Name is how this runner is registered and how it appears in result.json.
@@ -34,6 +37,11 @@ const Name = "http"
 // RunIDHeader identifies TracePoint traffic in the target's own logs and APM, so a
 // team can filter a load test out of - or into - their dashboards.
 const RunIDHeader = "X-Tracepoint-Run-Id"
+
+// PreflightHeader marks the one request per label sent before load starts, so a
+// target can leave it out of its own metrics - and so a target that schedules
+// anything relative to the run can start its clock at the first real request.
+const PreflightHeader = "X-Tracepoint-Preflight"
 
 // discardBufferSize bounds how much is read at a time while draining a body. Bodies
 // are always read to completion and closed, both so the connection can be reused and
@@ -53,16 +61,24 @@ type Runner struct {
 	insecure bool
 
 	phases *phaseStats
+	shared *template.Shared
 }
 
 // request is a compiled request: everything resolved once, at load time, so the hot
-// path only fills in a body and sends.
+// path only renders its templates and sends. A part with no template is kept as a
+// plain value and costs nothing per request.
 type request struct {
 	name    string
 	method  string
-	url     string
+	base    string
+	url     string             // resolved, when the url has no template
+	urlTpl  *template.Template // set when it does
+	host    string             // fixed at load time either way, so policy can judge it
+	display string             // the url as written, for messages
 	headers map[string]string
+	hdrTpls map[string]*template.Template
 	body    []byte
+	bodyTpl *template.Template
 	timeout time.Duration
 	expect  *config.Expect
 	label   metrics.LabelID
@@ -84,7 +100,7 @@ func New(cfg *config.HTTP, runDuration, defaultTimeout time.Duration, deps runne
 	if err != nil {
 		return nil, err
 	}
-	r := &Runner{cfg: cfg, deps: deps, timeout: defaultTimeout, phases: stats}
+	r := &Runner{cfg: cfg, deps: deps, timeout: defaultTimeout, phases: stats, shared: template.NewShared(deps.Clock)}
 
 	weights := make([]float64, 0, len(cfg.Requests))
 	for i := range cfg.Requests {
@@ -111,21 +127,44 @@ func New(cfg *config.HTTP, runDuration, defaultTimeout time.Duration, deps runne
 }
 
 func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
-	full, err := resolveURL(r.cfg.BaseURL, src.URL)
+	out := &request{name: src.Name, method: src.Method, base: r.cfg.BaseURL, expect: src.Expect}
+
+	// A template is compiled once, here, so a malformed token or an unknown generator
+	// is a configuration error before anything runs, and a token can never be sent
+	// literally (§4): a request for /items/{{randInt 1 100}} is a request for a
+	// resource that does not exist, and the 404s would look like a target problem.
+	urlTpl, err := template.Compile(src.URL)
 	if err != nil {
-		return nil, err
+		return nil, withPath(err, "/http/requests/"+src.Name+"/url")
 	}
-	// Templates are compiled at load time in phase 2. Until then a token would be sent
-	// literally, which §4 forbids outright - a request for /items/{{randInt 1 100}} is
-	// a request for a resource that does not exist, and the resulting 404s would look
-	// like a target problem.
-	for what, value := range map[string]string{"url": src.URL, "body": src.Body} {
-		if strings.Contains(value, "{{") {
-			return nil, errs.New(errs.CodeConfigTemplateSyntax,
-				"request %q uses a template in its %s, which this build cannot expand yet", src.Name, what).
-				WithPath("/http/requests").
-				WithHint("templates and generators land in phase 2; use a literal value for now")
+	out.display = src.URL
+	if urlTpl.IsStatic() {
+		if out.url, err = resolveURL(r.cfg.BaseURL, src.URL); err != nil {
+			return nil, err
 		}
+		if u, perr := url.Parse(out.url); perr == nil {
+			out.host = u.Hostname()
+		}
+	} else {
+		// A template may fill in a path or a query, never the scheme or the host: the
+		// policy judges every host before anything is contacted, and a host that is
+		// only known per request cannot be judged.
+		if templatedAuthority(src.URL) {
+			return nil, errs.New(errs.CodeConfigInvalidValue,
+				"request %q uses a template in its scheme or host", src.Name).
+				WithPath("/http/requests/" + src.Name + "/url").
+				WithHint("templates may fill a path or query; the host must be fixed so the safety policy can judge it")
+		}
+		// The static parts must still make a valid url, which a placeholder checks.
+		placeholder := strings.ReplaceAll(strings.ReplaceAll(src.URL, "{{", "x"), "}}", "x")
+		resolved, rerr := resolveURL(r.cfg.BaseURL, strings.ReplaceAll(placeholder, " ", "x"))
+		if rerr != nil {
+			return nil, rerr
+		}
+		if u, perr := url.Parse(resolved); perr == nil {
+			out.host = u.Hostname()
+		}
+		out.urlTpl = urlTpl
 	}
 
 	body := []byte(src.Body)
@@ -136,23 +175,117 @@ func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
 		}
 		body = b
 	}
+	if len(body) > 0 {
+		tpl, err := template.Compile(string(body))
+		if err != nil {
+			return nil, withPath(err, "/http/requests/"+src.Name+"/body")
+		}
+		if tpl.IsStatic() {
+			out.body = body
+		} else {
+			out.bodyTpl = tpl
+		}
+	}
 
-	headers := make(map[string]string, len(r.cfg.Headers)+len(src.Headers))
+	out.headers = make(map[string]string, len(r.cfg.Headers)+len(src.Headers))
 	for k, v := range r.cfg.Headers {
-		headers[k] = v
+		out.headers[k] = v
 	}
 	for k, v := range src.Headers {
-		headers[k] = v
+		out.headers[k] = v
+	}
+	for k, v := range out.headers {
+		tpl, err := template.Compile(v)
+		if err != nil {
+			return nil, withPath(err, "/http/requests/"+src.Name+"/headers/"+k)
+		}
+		if !tpl.IsStatic() {
+			if out.hdrTpls == nil {
+				out.hdrTpls = map[string]*template.Template{}
+			}
+			out.hdrTpls[k] = tpl
+			delete(out.headers, k)
+		}
 	}
 
-	timeout := r.timeout
+	out.timeout = r.timeout
 	if src.Timeout != nil {
-		timeout = src.Timeout.D()
+		out.timeout = src.Timeout.D()
 	}
-	return &request{
-		name: src.Name, method: src.Method, url: full,
-		headers: headers, body: body, timeout: timeout, expect: src.Expect,
-	}, nil
+	return out, nil
+}
+
+// templatedAuthority reports whether a template token appears before the path of a
+// url: in its scheme, credentials, host or port.
+func templatedAuthority(raw string) bool {
+	rest := raw
+	if i := strings.Index(rest, "://"); i >= 0 {
+		if strings.Contains(rest[:i], "{{") {
+			return true
+		}
+		rest = rest[i+3:]
+		end := strings.IndexAny(rest, "/?#")
+		if end < 0 {
+			end = len(rest)
+		}
+		return strings.Contains(rest[:end], "{{")
+	}
+	// A relative url takes its host from base_url; a scheme-relative one does not.
+	if strings.HasPrefix(rest, "//") {
+		rest = rest[2:]
+		end := strings.IndexAny(rest, "/?#")
+		if end < 0 {
+			end = len(rest)
+		}
+		return strings.Contains(rest[:end], "{{")
+	}
+	return false
+}
+
+func withPath(err error, path string) error {
+	var typed *errs.Error
+	if errors.As(err, &typed) && typed.Path == "" {
+		return typed.WithPath(path)
+	}
+	return err
+}
+
+// render fills in a request's templates for one iteration. A template that cannot be
+// rendered - a variable a journey was meant to extract, say - fails the operation
+// rather than sending a literal token.
+func (r *Runner) render(req *request, it *runner.Iteration) (target string, body []byte, headers map[string]string, err error) {
+	target, body = req.url, req.body
+	if req.urlTpl == nil && req.bodyTpl == nil && req.hdrTpls == nil {
+		return target, body, nil, nil
+	}
+	tctx := &template.Context{Shared: r.shared, Rand: it.Rand}
+	if req.urlTpl != nil {
+		raw, rerr := req.urlTpl.Render(tctx)
+		if rerr != nil {
+			return "", nil, nil, rerr
+		}
+		if target, err = resolveURL(req.base, raw); err != nil {
+			return "", nil, nil, err
+		}
+	}
+	if req.bodyTpl != nil {
+		raw, rerr := req.bodyTpl.Render(tctx)
+		if rerr != nil {
+			return "", nil, nil, rerr
+		}
+		body = []byte(raw)
+	}
+	if req.hdrTpls != nil {
+		headers = make(map[string]string, len(req.hdrTpls))
+		for k, tpl := range req.hdrTpls {
+			v, rerr := tpl.Render(tctx)
+			if rerr != nil {
+				return "", nil, nil, rerr
+			}
+			headers[k] = v
+		}
+	}
+	return target, body, headers, nil
 }
 
 func resolveURL(base, ref string) (string, error) {
@@ -292,11 +425,7 @@ func (r *Runner) Targets() []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, req := range r.requests {
-		u, err := url.Parse(req.url)
-		if err != nil {
-			continue
-		}
-		if h := u.Hostname(); h != "" && !seen[h] {
+		if h := req.host; h != "" && !seen[h] {
 			seen[h] = true
 			out = append(out, h)
 		}
@@ -322,13 +451,19 @@ func (r *Runner) preflight(ctx context.Context, req *request) error {
 	ctx, cancel := context.WithTimeout(ctx, req.timeout)
 	defer cancel()
 
-	httpReq, err := r.build(ctx, req)
+	it := &runner.Iteration{Rand: rand.New(rand.NewPCG(r.deps.Seed, 0))} //nolint:gosec // reproducibility, not secrecy
+	target, body, headers, err := r.render(req, it)
+	if err != nil {
+		return errs.Wrap(errs.CodeConfigTemplateSyntax, err, "rendering request %q for preflight", req.name)
+	}
+	httpReq, err := r.newRequest(ctx, req, target, body, headers)
 	if err != nil {
 		return err
 	}
+	httpReq.Header.Set(PreflightHeader, "1")
 	resp, err := r.client.Do(httpReq)
 	if err != nil {
-		return errs.Wrap(preflightCode(err), err, "preflight request %q to %s failed", req.name, req.url).
+		return errs.Wrap(preflightCode(err), err, "preflight request %q to %s failed", req.name, req.display).
 			WithHint("check that the target is running and reachable before starting a load test")
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -339,7 +474,7 @@ func (r *Runner) preflight(ctx context.Context, req *request) error {
 	// not a reason to refuse to run.
 	if resp.StatusCode >= 500 {
 		return errs.New(errs.CodePreflightHTTP,
-			"preflight request %q to %s returned %d", req.name, req.url, resp.StatusCode).
+			"preflight request %q to %s returned %d", req.name, req.display, resp.StatusCode).
 			WithHint("the target is failing before the test has started")
 	}
 	return nil
@@ -365,7 +500,17 @@ func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recor
 	ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(ctx, tr.clientTrace()), req.timeout)
 	defer cancel()
 
-	httpReq, err := r.build(ctx, req)
+	target, body, headers, err := r.render(req, it)
+	if err != nil {
+		// The iteration stops here: sending the request anyway would mean sending a
+		// literal {{token}}, which §4 forbids.
+		o.Class = metrics.ClassExtractFailed
+		o.ConnAcquired = r.deps.Elapsed()
+		o.End = o.ConnAcquired
+		rec.Record(&o)
+		return nil
+	}
+	httpReq, err := r.newRequest(ctx, req, target, body, headers)
 	if err != nil {
 		o.Class = metrics.ClassOther
 		o.ConnAcquired = r.deps.Elapsed()
@@ -373,7 +518,7 @@ func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recor
 		rec.Record(&o)
 		return nil
 	}
-	o.BytesOut = int64(len(req.body))
+	o.BytesOut = int64(len(body))
 
 	resp, err := r.client.Do(httpReq)
 	if err != nil {
@@ -410,16 +555,19 @@ func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recor
 	return nil
 }
 
-func (r *Runner) build(ctx context.Context, req *request) (*http.Request, error) {
+func (r *Runner) newRequest(ctx context.Context, req *request, target string, payload []byte, extra map[string]string) (*http.Request, error) {
 	var body io.Reader
-	if len(req.body) > 0 {
-		body = strings.NewReader(string(req.body))
+	if len(payload) > 0 {
+		body = bytes.NewReader(payload)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, req.method, req.url, body)
+	httpReq, err := http.NewRequestWithContext(ctx, req.method, target, body)
 	if err != nil {
 		return nil, errs.Wrap(errs.CodeConfigInvalidValue, err, "building request %q", req.name)
 	}
 	for k, v := range req.headers {
+		httpReq.Header.Set(k, v)
+	}
+	for k, v := range extra {
 		httpReq.Header.Set(k, v)
 	}
 	// Identifiable traffic: a team looking at their own logs should be able to tell a

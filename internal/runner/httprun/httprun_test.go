@@ -2,12 +2,14 @@ package httprun_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/IshaanNene/Tracepoint/internal/clock"
 	"github.com/IshaanNene/Tracepoint/internal/config"
+	"github.com/IshaanNene/Tracepoint/internal/errs"
 	"github.com/IshaanNene/Tracepoint/internal/metrics"
 	"github.com/IshaanNene/Tracepoint/internal/runner"
 	"github.com/IshaanNene/Tracepoint/internal/runner/httprun"
@@ -132,6 +135,31 @@ func TestTrafficIsIdentifiable(t *testing.T) {
 	}
 	if id, _ := gotRunID.Load().(string); id != "20260920T120000Z-test01" {
 		t.Errorf("%s = %q, want the run id", httprun.RunIDHeader, id)
+	}
+}
+
+// Preflight requests say so, and load requests do not, so a target can tell them apart.
+func TestPreflightIsMarked(t *testing.T) {
+	t.Parallel()
+	var marks []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		marks = append(marks, r.Header.Get(httprun.PreflightHeader))
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	h := newHarness(t, simpleConfig(srv.URL, nil), "probe")
+	if err := h.runner.Prepare(context.Background()); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	h.do(t, 1)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(marks) != 2 || marks[0] != "1" || marks[1] != "" {
+		t.Fatalf("preflight markers = %q, want [\"1\" \"\"]", marks)
 	}
 }
 
@@ -325,25 +353,113 @@ func TestRelativeURLWithoutBaseIsRejected(t *testing.T) {
 	}
 }
 
-// A literal {{token}} must never reach the target: it would request a resource that
-// does not exist and the 404s would look like a target problem (spec §4).
-func TestUnexpandedTemplateIsRejected(t *testing.T) {
-	t.Parallel()
+func newTemplateRunner(t *testing.T, step config.HTTPStep, base string) (*httprun.Runner, error) {
+	t.Helper()
 	cfg := &config.HTTP{
+		BaseURL:  base,
 		Executor: config.Executor{Type: "arrival-rate", Rate: 1, MaxInFlight: 1},
-		Requests: []config.HTTPStep{{Name: "probe", Method: "GET", URL: "http://127.0.0.1/items/{{randInt 1 10}}"}},
+		Requests: []config.HTTPStep{step},
 	}
-	col, _ := metrics.NewCollector(metrics.Config{
-		Runner: "http", Labels: []string{"probe"}, BucketWidth: time.Second, MinSamples: 1,
+	col, err := metrics.NewCollector(metrics.Config{
+		Runner: "http", Labels: []string{step.Name}, BucketWidth: time.Second, MinSamples: 1,
 	})
-	_, err := httprun.New(cfg, time.Second, time.Second, runner.Deps{
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httprun.New(cfg, time.Second, time.Second, runner.Deps{
 		Collector: col, Clock: clock.New(), Start: time.Now(),
 	})
-	if err == nil {
-		t.Fatal("a template this build cannot expand must be rejected, not sent literally")
+}
+
+// Templates in the url, body and headers are compiled once and rendered per request,
+// so the target sees values and never a literal {{token}} (§4).
+func TestTemplatesExpand(t *testing.T) {
+	t.Parallel()
+	var got atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got.Store(r.URL.Path + "|" + r.Header.Get("X-Req") + "|" + string(b))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := &config.HTTP{
+		BaseURL:  srv.URL,
+		Executor: config.Executor{Type: "arrival-rate", Rate: 10, MaxInFlight: 8},
+		Requests: []config.HTTPStep{{
+			Name: "create", Method: "POST", URL: "/items/{{randInt 1 9}}",
+			Headers: map[string]string{"X-Req": "{{seq}}"},
+			Body:    `{"title":"{{randString 6}}"}`,
+		}},
 	}
-	if !strings.Contains(err.Error(), "template") {
-		t.Errorf("error should explain the template: %v", err)
+	h := newHarness(t, cfg, "create")
+	h.do(t, 3)
+
+	s, _ := got.Load().(string)
+	parts := strings.Split(s, "|")
+	if len(parts) != 3 || strings.Contains(s, "{{") {
+		t.Fatalf("the target saw %q", s)
+	}
+	if !strings.HasPrefix(parts[0], "/items/") || len(parts[0]) != len("/items/1") {
+		t.Errorf("path = %q", parts[0])
+	}
+	if parts[1] == "" || !strings.HasPrefix(parts[2], `{"title":"`) || len(parts[2]) != len(`{"title":"abcdef"}`) {
+		t.Errorf("header %q body %q", parts[1], parts[2])
+	}
+	if snap := h.collector.Snapshot().Summary; snap.OK != 3 {
+		t.Errorf("ok = %d, want 3 (errors %v)", snap.OK, snap.Errors)
+	}
+}
+
+func TestTemplateErrorsAreConfigErrors(t *testing.T) {
+	t.Parallel()
+	_, err := newTemplateRunner(t, config.HTTPStep{Name: "p", Method: "GET", URL: "http://127.0.0.1/{{nope 1}}"}, "")
+	var typed *errs.Error
+	if !errors.As(err, &typed) || typed.Code != errs.CodeConfigTemplateUnknownFn {
+		t.Fatalf("an unknown generator: %v", err)
+	}
+}
+
+// The policy judges every host before anything connects, so a host chosen per request
+// is refused - and a templated path still reports its fixed host.
+func TestTemplatedHostIsRefused(t *testing.T) {
+	t.Parallel()
+	for _, u := range []string{"http://{{pick a|b}}.example/x", "{{pick http|https}}://h/x", "//{{uuid}}/x"} {
+		if _, err := newTemplateRunner(t, config.HTTPStep{Name: "p", Method: "GET", URL: u}, "http://base"); err == nil {
+			t.Errorf("%s: a templated host must be refused", u)
+		}
+	}
+	r, err := newTemplateRunner(t, config.HTTPStep{Name: "p", Method: "GET", URL: "/items/{{randInt 1 9}}"}, "http://api.internal:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Targets(); len(got) != 1 || got[0] != "api.internal" {
+		t.Fatalf("Targets() = %v", got)
+	}
+}
+
+// A variable nothing supplies fails the operation as extract_failed; the request is
+// never sent with the token in it.
+func TestUnresolvableTemplateFailsTheOperation(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	cfg := &config.HTTP{
+		BaseURL:  srv.URL,
+		Executor: config.Executor{Type: "arrival-rate", Rate: 1, MaxInFlight: 1},
+		Requests: []config.HTTPStep{{Name: "p", Method: "GET", URL: "/items/{{token}}"}},
+	}
+	h := newHarness(t, cfg, "p")
+	h.do(t, 2)
+	if hits.Load() != 0 {
+		t.Fatalf("the target was contacted %d times with an unresolved token", hits.Load())
+	}
+	if n := h.collector.Snapshot().Summary.Errors["extract_failed"]; n != 2 {
+		t.Fatalf("errors = %v, want two extract_failed", h.collector.Snapshot().Summary.Errors)
 	}
 }
 

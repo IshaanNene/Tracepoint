@@ -448,6 +448,24 @@ func (c *Config) Runners() []string {
 	return out
 }
 
+// Samplers lists the datastore telemetry samplers this configuration enables, in a
+// stable order. The generator's own sampler is always on and is not listed.
+func (c *Config) Samplers() []string {
+	if c.Telemetry == nil {
+		return nil
+	}
+	var out []string
+	for _, s := range []struct {
+		name string
+		s    *Sampler
+	}{{"postgres", c.Telemetry.Postgres}, {"mysql", c.Telemetry.MySQL}, {"redis", c.Telemetry.Redis}} {
+		if s.s != nil && s.s.Enabled {
+			out = append(out, s.name)
+		}
+	}
+	return out
+}
+
 // Weight returns a step's relative weight, defaulting to 1 when none was written.
 // Weight is a pointer so that an explicitly configured zero - which would mean a
 // request that is never picked - is a validation error rather than a silent default.

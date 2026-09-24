@@ -34,6 +34,7 @@ func newRunCmd(env Env, g *globals) *cobra.Command {
 		verbose      bool
 		seed         uint64
 		seedSet      bool
+		thresholds   = map[string]*time.Duration{}
 	)
 
 	cmd := &cobra.Command{
@@ -55,10 +56,15 @@ because the load generator rather than the target set the pace.`),
 				overrides: overrides, dryRun: dryRun,
 				allowInvalid: allowInvalid, verbose: verbose,
 				seed: seed, seedSet: seedSet,
+				thresholds: thresholdFlags(cmd, thresholds),
 			})
 		},
 	}
 	f := cmd.Flags()
+	for _, name := range []string{"http", "db", "redis"} {
+		thresholds[name] = f.Duration(name+"-threshold", 0,
+			"hot-bucket threshold on "+name+" p99 service time when slo."+name+".p99 is not set (default 100ms)")
+	}
 	f.StringVarP(&configPath, "config", "c", "tracepoint.yaml", "configuration file, or - to read standard input")
 	f.StringVar(&resultPath, "result-path", "", "also write result.json here")
 	f.BoolVar(&allowInvalid, "allow-invalid", false, "exit 0 for a run the generator bottlenecked, instead of 4")
@@ -100,6 +106,19 @@ type runOptions struct {
 	verbose      bool
 	seed         uint64
 	seedSet      bool
+	thresholds   map[string]float64
+}
+
+// thresholdFlags collects the --<runner>-threshold flags that were actually given, in
+// milliseconds.
+func thresholdFlags(cmd *cobra.Command, flags map[string]*time.Duration) map[string]float64 {
+	out := map[string]float64{}
+	for name, d := range flags {
+		if cmd.Flags().Changed(name+"-threshold") && *d > 0 {
+			out[name] = float64(*d) / float64(time.Millisecond)
+		}
+	}
+	return out
 }
 
 func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
@@ -129,7 +148,8 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 	eopts := engine.Options{
 		Config: cfg, SourcePath: opts.configPath, Clock: nil, Logger: log,
 		Overrides: opts.overrides, Policy: effective,
-		Warnings: planWarnings(warnings),
+		Warnings:   planWarnings(warnings),
+		Thresholds: opts.thresholds,
 	}
 	if opts.seedSet {
 		eopts.Seed = &opts.seed

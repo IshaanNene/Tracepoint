@@ -5,8 +5,9 @@
 // collectors and runners, preflight them, drive the executors, seal buckets on a
 // ticker, drain gracefully, and hand the recorded data to the result builder.
 //
-// The engine performs no analysis. Analysis is a pure function of the result document
-// (docs/adr/004), so it happens after this package is done.
+// The engine performs no analysis of its own. Analysis is a pure function of the
+// result document (docs/adr/004), so the engine hands the finished document to
+// internal/analysis as its last act.
 package engine
 
 import (
@@ -18,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/IshaanNene/Tracepoint/internal/analysis"
 	"github.com/IshaanNene/Tracepoint/internal/clock"
 	"github.com/IshaanNene/Tracepoint/internal/config"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
@@ -56,6 +58,9 @@ type Options struct {
 	// Warnings carries findings made before the engine started - by policy
 	// application, for instance - into the result.
 	Warnings []result.Finding
+	// Thresholds are --<runner>-threshold values in milliseconds, the hot-bucket
+	// threshold for a runner with no SLO p99.
+	Thresholds map[string]float64
 }
 
 // Progress is a live view of a run, for the terminal or an event stream.
@@ -580,7 +585,17 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 		}
 		in.Runners = append(in.Runners, ri)
 	}
-	return result.Build(in)
+	res, err := result.Build(in)
+	if err != nil {
+		return nil, err
+	}
+	cfg := e.opts.Config
+	res.Analysis = analysis.Analyse(res, analysis.Inputs{
+		SLO:            cfg.SLO,
+		FlagThresholds: e.opts.Thresholds,
+		Telemetry:      cfg.Samplers(),
+	})
+	return res, nil
 }
 
 func q(v metrics.Quantiles) result.Quantiles {

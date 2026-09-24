@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"runtime"
 	"sort"
@@ -47,7 +46,7 @@ type BuildInput struct {
 	Artifacts   *Artifacts
 }
 
-// Build assembles the result document.
+// Build assembles the result document, everything but its analysis.
 //
 // Nothing here talks to a target or a clock: it is a pure function of what was
 // recorded, which is what makes the same run always produce the same document and
@@ -99,8 +98,9 @@ func Build(in BuildInput) (*Result, error) {
 		return nil, err
 	}
 	r.Config = cfgDoc
-
-	r.Analysis = Analyse(r, in.Config)
+	// Analysis is deliberately not done here. It is a pure function of this document
+	// and lives in internal/analysis, which reads these types; the caller fills
+	// r.Analysis once the document is complete.
 	return r, nil
 }
 
@@ -284,5 +284,3 @@ func (r *Runner) SortedLabels() []string {
 	sort.Strings(out)
 	return out
 }
-
-var _ = fmt.Sprintf

@@ -65,6 +65,7 @@ func fullResult(t *testing.T) *result.Result {
 		Boundary: &result.Boundary{LastOK: 100, FirstBroken: 200, Stable: true},
 	}
 	r.Artifacts = &result.Artifacts{RunDir: "runs/x", Result: "runs/x/result.json"}
+	r.RunnerByName("db").Buckets[40].Insufficient = true
 	return r
 }
 
@@ -242,8 +243,11 @@ func TestBandsAndGaps(t *testing.T) {
 	if kinds[bandWarmup] != 1 || kinds[bandRamp] != 1 || kinds[bandIncident] != len(r.Analysis.Incidents) || kinds[bandIncident] == 0 {
 		t.Fatalf("bands = %+v", v.Bands)
 	}
-	if v.Runners[1].Service["p99"][3] != nil {
-		t.Fatal("an insufficient bucket must be a gap, not a percentile")
+	if v.Runners[1].Service["p99"][3] != nil || v.Runners[1].Sparse["service.p99"][3] == nil {
+		t.Fatal("an insufficient bucket must leave the line and be drawn apart from it")
+	}
+	if v.Runners[1].Sparse["service.p99"][4] != nil {
+		t.Fatal("a sufficient bucket must not appear among the sparse points")
 	}
 	// A 1.0 result cannot tell a ramp from a hold, so it shades none.
 	r.RunnerByName("http").Executor.StartTarget = nil

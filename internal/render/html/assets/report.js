@@ -99,6 +99,17 @@
         value: function (u, v) { return fmtMS(v); }
       });
     });
+    /* Buckets with too few samples: points only, never joined to the line. */
+    view.runners.forEach(function (r, i) {
+      var s = (r.sparse || {})[state.lat + "." + state.q] || [];
+      if (!s.some(function (v) { return v !== null; })) { return; }
+      data.push(state.log ? positive(s) : s);
+      series.push({
+        label: r.name + " (too few samples)", stroke: colourFor(r.name, i), width: 0, scale: "ms",
+        paths: function () { return null; }, points: { show: true, size: 6, width: 1, fill: cssVar("--bg") },
+        value: function (u, v) { return fmtMS(v); }
+      });
+    });
     var axes = [axis("x", "seconds into the run", undefined, true), axis("ms", "milliseconds", undefined, true)];
     if (state.inflight) {
       view.runners.forEach(function (r, i) {

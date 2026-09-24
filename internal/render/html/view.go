@@ -25,12 +25,17 @@ type view struct {
 }
 
 // viewRunner is one runner's timeline. A bucket with too few samples to support a
-// percentile is a gap, never a point (§3.4).
+// percentile (§3.4) is left out of the line and drawn in its own points-only series
+// instead: hiding it would mislead, and joining it to the line would lend it a
+// weight it has not earned (ADR-002).
 type viewRunner struct {
 	Name     string                `json:"name"`
 	Kind     string                `json:"kind"`
 	Response map[string][]*float64 `json:"response"`
 	Service  map[string][]*float64 `json:"service"`
+	// Sparse holds the insufficient buckets, keyed like Response and Service with a
+	// "response." or "service." prefix.
+	Sparse   map[string][]*float64 `json:"sparse"`
 	InFlight []*float64            `json:"in_flight"`
 }
 
@@ -96,6 +101,7 @@ func buildView(r *result.Result) view {
 
 	// Every series of every runner is thinned together, so points stay aligned.
 	var all [][]*float64
+	// kind: 0 response, 1 service, 2 in flight, 3 sparse response, 4 sparse service.
 	type slot struct{ runner, kind, q int }
 	var slots []slot
 	for ri, rn := range r.Runners {
@@ -111,14 +117,20 @@ func buildView(r *result.Result) view {
 		} {
 			for qi, q := range quantileNames {
 				s := make([]*float64, n)
+				sparse := make([]*float64, n)
 				for i, b := range byIndex {
-					if b != nil && b.N > 0 && !b.Insufficient {
-						val := pick(get(b), q)
+					if b == nil || b.N == 0 {
+						continue
+					}
+					val := pick(get(b), q)
+					if b.Insufficient {
+						sparse[i] = &val
+					} else {
 						s[i] = &val
 					}
 				}
-				all = append(all, s)
-				slots = append(slots, slot{ri, kind, qi})
+				all = append(all, s, sparse)
+				slots = append(slots, slot{ri, kind, qi}, slot{ri, kind + 3, qi})
 			}
 		}
 		inflight := make([]*float64, n)
@@ -136,7 +148,7 @@ func buildView(r *result.Result) view {
 	for _, rn := range r.Runners {
 		v.Runners = append(v.Runners, viewRunner{
 			Name: rn.Name, Kind: rn.Kind,
-			Response: map[string][]*float64{}, Service: map[string][]*float64{},
+			Response: map[string][]*float64{}, Service: map[string][]*float64{}, Sparse: map[string][]*float64{},
 		})
 	}
 	for i, s := range slots {
@@ -146,6 +158,10 @@ func buildView(r *result.Result) view {
 			vr.Response[quantileNames[s.q]] = gys[i]
 		case 1:
 			vr.Service[quantileNames[s.q]] = gys[i]
+		case 3:
+			vr.Sparse["response."+quantileNames[s.q]] = gys[i]
+		case 4:
+			vr.Sparse["service."+quantileNames[s.q]] = gys[i]
 		default:
 			vr.InFlight = gys[i]
 		}

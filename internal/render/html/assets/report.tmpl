@@ -132,7 +132,7 @@
 
 <section id="timeline" aria-labelledby="timeline-h">
   <h2 id="timeline-h">Shared timeline</h2>
-  <p>Every runner on one clock. Warm-up, ramps and incidents are shaded; buckets with too few samples for a percentile are gaps.{{if gt .Grouped 1}} For display each point is the maximum of {{.Grouped}} buckets, so no spike is hidden; the analysis used every bucket.{{end}}</p>
+  <p>Every runner on one clock. Warm-up, ramps and incidents are shaded. A bucket with too few samples for a trustworthy percentile is drawn as a hollow point, apart from the line; it never makes a bucket hot or joins an incident.{{if gt .Grouped 1}} For display each point is the maximum of {{.Grouped}} buckets, so no spike is hidden; the analysis used every bucket.{{end}}</p>
   <form class="controls" id="timeline-controls" aria-label="Timeline options">
     <fieldset><legend>Percentile</legend>
       <label><input type="radio" name="q" value="p50"> p50</label>

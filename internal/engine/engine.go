@@ -69,6 +69,10 @@ type Options struct {
 }
 
 // Progress is a live view of a run, for the terminal or an event stream.
+//
+// Offered, Done and InFlight are current. Errors and P99MS cover sealed buckets only,
+// so they trail the run by the operation timeout: a bucket seals once no operation
+// that belongs to it can still complete, which is what makes a sealed figure final.
 type Progress struct {
 	Elapsed  time.Duration
 	Total    time.Duration
@@ -545,11 +549,12 @@ func (e *Engine) startSweeper(ctx context.Context) func() {
 func (e *Engine) reportProgress(elapsed time.Duration) {
 	for _, br := range e.runners {
 		st := br.exec.Stats()
+		inFlight := br.exec.InFlight()
 		snap := br.collector.Snapshot()
 		e.opts.Progress(Progress{
 			Elapsed: elapsed, Total: e.opts.Config.Run.Duration.D(),
-			Runner: br.name, Offered: st.Offered, Done: snap.Summary.N,
-			Errors: snap.Summary.ErrorsTotal, InFlight: br.exec.InFlight(),
+			Runner: br.name, Offered: st.Offered, Done: max(0, st.Dispatched-inFlight),
+			Errors: snap.Summary.ErrorsTotal, InFlight: inFlight,
 			P99MS: snap.Summary.Response.P99,
 		})
 	}

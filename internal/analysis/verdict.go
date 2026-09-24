@@ -663,10 +663,14 @@ func seconds(s float64) string {
 }
 
 func ms(v float64) string {
-	if v >= 100 {
+	switch {
+	case v >= 1000:
+		return fmt.Sprintf("%.2fs", v/1000)
+	case v >= 100:
 		return fmt.Sprintf("%.0fms", v)
+	default:
+		return fmt.Sprintf("%.1fms", v)
 	}
-	return fmt.Sprintf("%.1fms", v)
 }
 
 func num(v float64) string {

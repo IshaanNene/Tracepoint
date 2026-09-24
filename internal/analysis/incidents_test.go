@@ -380,8 +380,12 @@ func TestIncidentRedisStallSignals(t *testing.T) {
 	for _, s := range inc.Telemetry {
 		got[s.Source+"/"+s.Signal] = true
 	}
-	if !got["redis/ops_per_sec"] || !got["redis/sample_ms"] {
+	if !got["redis/sample_ms"] {
 		t.Fatalf("signals = %+v", inc.Telemetry)
+	}
+	// Throughput fell too, but a fall in throughput cannot tell cause from victim.
+	if got["redis/ops_per_sec"] {
+		t.Fatalf("ops_per_sec must not corroborate: %+v", inc.Telemetry)
 	}
 	if inc.Culprit == nil || inc.Culprit.Runner != "redis" {
 		t.Fatalf("culprit = %+v", inc.Culprit)

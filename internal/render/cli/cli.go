@@ -183,7 +183,9 @@ func writeRunners(b *strings.Builder, p painter, r *result.Result) {
 		if rn.Summary.Response.P99 <= 0 {
 			continue
 		}
-		if share := rn.Summary.ClientWait.P99 / rn.Summary.Response.P99; share > 0.2 {
+		// A share of a tiny number is noise: a millisecond of scheduling jitter is most
+		// of a 2ms p99 and says nothing about anything.
+		if share := rn.Summary.ClientWait.P99 / rn.Summary.Response.P99; share > 0.2 && rn.Summary.ClientWait.P99 >= 5 {
 			// Quoting the service figure alongside is the point: it is the number that
 			// describes the target, and the one tier attribution uses. Without it a
 			// reader sees a large p99 and blames the wrong thing.

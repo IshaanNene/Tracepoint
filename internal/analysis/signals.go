@@ -56,6 +56,12 @@ type signalRule struct {
 // rules is the fixed table of corroborating signals. Keys are documented per sampler
 // in docs/METHODOLOGY.md. Order is the order signals are reported in.
 //
+// Throughput is deliberately absent. A tier's throughput falls when its server stalls,
+// but it falls just as far when the application stops calling it because some other
+// tier is stalled - a database lock starves the cache of requests too - so a fall in
+// throughput cannot tell cause from victim. Every rule here moves only when the
+// server itself is struggling.
+//
 //nolint:gochecknoglobals // A fixed table, never mutated.
 var rules = []signalRule{
 	{source: SourcePostgres, key: "locks_waiting", dir: up, minAbs: 1, ratio: 2,
@@ -84,8 +90,6 @@ var rules = []signalRule{
 
 	{source: SourceRedis, key: "blocked_clients", dir: up, minAbs: 1, ratio: 2,
 		note: "clients were blocked"},
-	{source: SourceRedis, key: "ops_per_sec", dir: down, minAbs: 10, ratio: 0.5, minBase: 10,
-		note: "throughput collapsed while demand did not"},
 	{source: SourceRedis, key: "sample_ms", dir: up, minAbs: 50, ratio: 3,
 		note: "the sampler's own INFO call stalled, so the server stopped answering"},
 	{source: SourceRedis, key: "latency_max_ms", dir: up, minAbs: 50, ratio: 3,

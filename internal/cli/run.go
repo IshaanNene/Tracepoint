@@ -27,6 +27,7 @@ type runOptions struct {
 	configPath   string
 	from         string
 	resultPath   string
+	reportPath   string
 	policyPath   string
 	runRoot      string
 	outDir       string
@@ -51,7 +52,7 @@ func newRunCmd(env Env, g *globals) *cobra.Command {
 		Short: "Run a load test and report which tier was slow",
 		Long: strings.TrimSpace(`
 Run the configuration, then report. Every run gets a directory - runs/<id>/ unless
---out-dir says otherwise - holding state.json, events.ndjson, result.json, digest.json,
+--out-dir says otherwise - holding state.json, events.ndjson, result.json, digest.json, report.html,
 config.effective.yaml and run.log.
 
 Exit code 0 means the run was valid and met its budgets; 1 means a budget was breached;
@@ -87,6 +88,7 @@ still reported at once; the load then runs in the background and the command pri
 	f.StringVarP(&opts.configPath, "config", "c", "tracepoint.yaml", "configuration file, or - to read standard input")
 	f.StringVar(&opts.from, "from", "", "re-run a previous run's effective configuration, by run id or directory; combine with --set")
 	f.StringVar(&opts.resultPath, "result-path", "", "also write result.json here")
+	f.StringVar(&opts.reportPath, "report-path", "", "also write report.html here")
 	f.StringVar(&opts.outDir, "out-dir", "", "write the run directory here instead of under the run root")
 	f.StringVar(&opts.runRoot, "run-root", "", "directory run directories are created under; defaults to the policy's run_root, then runs/")
 	f.StringVar(&opts.events, "events", "", "stream events as NDJSON: - for stdout (which then carries nothing else), or a file path")
@@ -113,7 +115,7 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 	req := session.Request{
 		Overrides: opts.overrides, Granted: granted, Lookup: env.Lookup,
 		Thresholds: opts.thresholds, AllowInvalid: opts.allowInvalid, Actor: env.actor(),
-		Logger: g.logger(env), Store: store, OutDir: opts.outDir, ResultPath: opts.resultPath,
+		Logger: g.logger(env), Store: store, OutDir: opts.outDir, ResultPath: opts.resultPath, ReportPath: opts.reportPath,
 		Detached: opts.detach,
 	}
 	if opts.seedSet {

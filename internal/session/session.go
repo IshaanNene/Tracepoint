@@ -25,6 +25,7 @@ import (
 	"github.com/IshaanNene/Tracepoint/internal/errs"
 	"github.com/IshaanNene/Tracepoint/internal/events"
 	"github.com/IshaanNene/Tracepoint/internal/policy"
+	htmlreport "github.com/IshaanNene/Tracepoint/internal/render/html"
 	"github.com/IshaanNene/Tracepoint/internal/result"
 	"github.com/IshaanNene/Tracepoint/internal/runstore"
 )
@@ -58,6 +59,8 @@ type Request struct {
 	RunID string
 	// ResultPath, when set, receives a copy of result.json.
 	ResultPath string
+	// ReportPath, when set, receives a copy of report.html.
+	ReportPath string
 	Detached   bool
 }
 
@@ -346,7 +349,7 @@ func (p *Prepared) finish(res *result.Result, em *events.Emitter) (*Outcome, err
 	p.update(func(st *runstore.State) { st.Phase = "analysis" })
 	res.Artifacts = &result.Artifacts{
 		RunDir: r.Dir, Result: r.Path(runstore.ResultFile), Digest: r.Path(runstore.DigestFile),
-		Events: r.Path(runstore.EventsFile), Config: r.Path(runstore.ConfigFile), Log: r.Path(runstore.LogFile),
+		Report: r.Path(runstore.ReportFile), Events: r.Path(runstore.EventsFile), Config: r.Path(runstore.ConfigFile), Log: r.Path(runstore.LogFile),
 	}
 
 	code, exitErr := ExitFor(res, p.req.AllowInvalid)
@@ -390,6 +393,7 @@ func (p *Prepared) finish(res *result.Result, em *events.Emitter) (*Outcome, err
 			return nil, err
 		}
 	}
+	p.writeReport(res)
 
 	em.Emit(events.RunFinished, map[string]any{"status": res.Run.Status, "exit_code": code, "digest": digest})
 
@@ -414,6 +418,22 @@ func (p *Prepared) finish(res *result.Result, em *events.Emitter) (*Outcome, err
 	p.logger().Info("run finished", "status", status, "exit_code", code,
 		"validity", res.Analysis.Validity.State, "bottleneck", res.Analysis.Verdict.Bottleneck)
 	return &Outcome{Result: res, Digest: digest, ExitCode: code, Err: exitErr}, nil
+}
+
+// writeReport renders report.html. The report is derived from result.json, which is
+// already written, so a failure here costs the human view but not the run: it is
+// logged, and `tracepoint report` can render it again.
+func (p *Prepared) writeReport(res *result.Result) {
+	page, err := htmlreport.Render(res, htmlreport.Options{})
+	if err == nil {
+		err = p.Run.WriteFile(runstore.ReportFile, page)
+	}
+	if err == nil && p.req.ReportPath != "" {
+		err = writeFile(p.req.ReportPath, page)
+	}
+	if err != nil {
+		p.logger().Warn("the HTML report could not be written; `tracepoint report` can render it from result.json", "err", err)
+	}
 }
 
 // fail records a run that could not produce a result.

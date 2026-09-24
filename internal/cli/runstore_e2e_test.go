@@ -107,7 +107,7 @@ func TestRunWritesItsDirectory(t *testing.T) {
 	}
 	id := onlyRun(t, root)
 	dir := filepath.Join(root, id)
-	for _, f := range []string{"state.json", "events.ndjson", "result.json", "digest.json", "config.effective.yaml", "run.log"} {
+	for _, f := range []string{"state.json", "events.ndjson", "result.json", "digest.json", "report.html", "config.effective.yaml", "run.log"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("missing %s", f)
 		}
@@ -146,10 +146,16 @@ func TestRunWritesItsDirectory(t *testing.T) {
 		t.Fatalf("no bucket.sealed in %v", types)
 	}
 
-	for _, name := range []string{"state.json", "events.ndjson", "result.json", "digest.json", "config.effective.yaml", "run.log"} {
-		b, _ := os.ReadFile(filepath.Join(dir, name))
+	// Every file the run wrote, whatever it is: a new artifact is covered the day it
+	// appears.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		b, _ := os.ReadFile(filepath.Join(dir, e.Name()))
 		if bytes.Contains(b, []byte("inline-secret")) {
-			t.Errorf("the inline secret leaked into %s", name)
+			t.Errorf("the inline secret leaked into %s", e.Name())
 		}
 	}
 	audit, _ := os.ReadFile(filepath.Join(root, "audit.ndjson"))
@@ -160,6 +166,31 @@ func TestRunWritesItsDirectory(t *testing.T) {
 	// digest accepts the run id now that runs have a store.
 	d := execWith(t, root, "", "digest", id)
 	validateAgainst(t, compileSchema(t, "digest"), d.stdout, "digest")
+
+	// report re-renders from result.json, byte for byte what the run wrote.
+	written, _ := os.ReadFile(filepath.Join(dir, "report.html"))
+	again := filepath.Join(t.TempDir(), "again.html")
+	if rr := execWith(t, root, "", "report", id, "--out", again); rr.code != 0 {
+		t.Fatalf("report: %d %s", rr.code, rr.stderr)
+	}
+	if b, _ := os.ReadFile(again); !bytes.Equal(b, written) {
+		t.Error("report did not reproduce the run's report.html")
+	}
+	md := execWith(t, root, "", "report", id, "--format", "md")
+	if md.code != 0 || !strings.HasPrefix(md.stdout, "### TracePoint: ") || bytes.Contains([]byte(md.stdout), []byte("inline-secret")) {
+		t.Fatalf("markdown: %d %s", md.code, md.stdout)
+	}
+	js := execWith(t, root, "", "report", dir, "--format", "junit", "--output", "json")
+	var out cli.ReportOut
+	if err := json.Unmarshal([]byte(js.stdout), &out); err != nil || out.Path != filepath.Join(dir, "junit.xml") || out.Format != "junit" || out.RunID != id {
+		t.Fatalf("junit --output json: %v %s", err, js.stdout)
+	}
+	if bad := execWith(t, root, "", "report", id, "--out", "-", "--output", "json"); bad.code != errs.ExitUsage {
+		t.Fatalf("--out - with --output json: %d", bad.code)
+	}
+	if bad := execWith(t, root, "", "report", id, "--format", "pdf"); bad.code != errs.ExitUsage {
+		t.Fatalf("an unknown format: %d", bad.code)
+	}
 }
 
 // With --events -, stdout is the event stream and nothing else, ending in run.finished
@@ -274,7 +305,9 @@ func TestDetachWaitStop(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "runs")
 
 	start := time.Now()
-	r := execWith(t, root, exe, "run", "-c", simpleConfig(t, srv.URL, "30s"), "--detach", "--output", "json")
+	copies := t.TempDir()
+	r := execWith(t, root, exe, "run", "-c", simpleConfig(t, srv.URL, "30s"), "--detach", "--output", "json",
+		"--result-path", filepath.Join(copies, "result.json"), "--report-path", filepath.Join(copies, "report.html"))
 	if r.code != errs.ExitOK {
 		t.Fatalf("detach: %d %s %s", r.code, r.stdout, r.stderr)
 	}
@@ -307,6 +340,12 @@ func TestDetachWaitStop(t *testing.T) {
 	}
 	if st.Status != runstore.StatusInterrupted {
 		t.Fatalf("status = %s, want interrupted", st.Status)
+	}
+	// The detached child honours the copies its parent was asked for.
+	for _, f := range []string{"result.json", "report.html"} {
+		if _, err := os.Stat(filepath.Join(copies, f)); err != nil {
+			t.Errorf("the detached run did not write --%s-path: %v", strings.TrimSuffix(strings.TrimSuffix(f, ".json"), ".html"), err)
+		}
 	}
 	res, err := os.ReadFile(filepath.Join(started.RunDir, "result.json"))
 	if err != nil {

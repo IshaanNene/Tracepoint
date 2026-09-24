@@ -33,6 +33,8 @@ type handoff struct {
 	Actor        string             `json:"actor,omitempty"`
 	RunID        string             `json:"run_id"`
 	RunDir       string             `json:"run_dir"`
+	ResultPath   string             `json:"result_path,omitempty"`
+	ReportPath   string             `json:"report_path,omitempty"`
 }
 
 // Detach starts the run in a background process and returns once it has started.
@@ -52,6 +54,14 @@ func (p *Prepared) Detach(ctx context.Context, executable string) (pid int, err 
 		Source: p.req.Source, SourcePath: p.req.SourcePath, Overrides: p.req.Overrides,
 		Granted: p.req.Granted, Seed: p.seed, Thresholds: p.req.Thresholds,
 		AllowInvalid: p.req.AllowInvalid, Actor: p.req.Actor, RunID: p.Run.ID, RunDir: p.Run.Dir,
+	}
+	// Copies requested with --result-path and --report-path go where the caller meant,
+	// whatever directory the child ends up in.
+	if h.ResultPath, err = absolute(p.req.ResultPath); err != nil {
+		return 0, err
+	}
+	if h.ReportPath, err = absolute(p.req.ReportPath); err != nil {
+		return 0, err
 	}
 	payload, err := json.Marshal(h)
 	if err != nil {
@@ -111,6 +121,7 @@ func RunDetached(ctx context.Context, in io.Reader, lookup func(string) (string,
 		Source: h.Source, SourcePath: h.SourcePath, Overrides: h.Overrides, Granted: h.Granted,
 		Lookup: lookup, Seed: &seed, Thresholds: h.Thresholds, AllowInvalid: h.AllowInvalid,
 		Actor: h.Actor, Store: store, RunID: h.RunID, OutDir: h.RunDir, Detached: true,
+		ResultPath: h.ResultPath, ReportPath: h.ReportPath,
 		// run.log is written by the session itself; this process's stderr is also
 		// run.log, so logging here as well would write every line twice.
 		Logger: slog.New(slog.DiscardHandler),
@@ -141,4 +152,15 @@ func failRun(store *runstore.Store, h handoff, err error) {
 	}); uerr != nil {
 		fmt.Fprintln(os.Stderr, "tracepoint: recording the failure:", uerr)
 	}
+}
+
+func absolute(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", errs.Wrap(errs.CodeIOWriteFailed, err, "resolving %s", path)
+	}
+	return abs, nil
 }

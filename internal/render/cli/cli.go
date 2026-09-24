@@ -70,6 +70,7 @@ func Render(w io.Writer, r *result.Result, opts Options) error {
 	if opts.Verbose {
 		writeLabels(b, p, r)
 	}
+	writeIncidents(b, p, r)
 	writeVerdict(b, p, r, opts)
 	writeArtifacts(b, p, r)
 
@@ -244,6 +245,82 @@ func writeLabels(b *strings.Builder, p painter, r *result.Result) {
 		writeTable(b, p, rows, "  ")
 		b.WriteString("\n")
 	}
+}
+
+// maxIncidentRows bounds the incident table; the full list is in result.json.
+const maxIncidentRows = 10
+
+func writeIncidents(b *strings.Builder, p painter, r *result.Result) {
+	a := r.Analysis
+	if len(a.Incidents) > 0 {
+		fmt.Fprintf(b, "  %s %d\n", p.paint(bold, pad("INCIDENTS", labelWidth)), len(a.Incidents))
+		rows := [][]string{{"ID", "CLASS", "WINDOW", "HOT", "CULPRIT", "APP p99"}}
+		for i, inc := range a.Incidents {
+			if i == maxIncidentRows {
+				break
+			}
+			var hot []string
+			for _, rn := range inc.Runners {
+				if rn.Hot {
+					hot = append(hot, rn.Name)
+				}
+			}
+			culprit := "-"
+			if c := inc.Culprit; c != nil {
+				switch {
+				case len(c.TiedWith) > 0:
+					culprit = "tie: " + strings.Join(append([]string{c.Runner}, c.TiedWith...), "/")
+				case c.LeadBuckets != 0:
+					culprit = fmt.Sprintf("%s (%+d)", c.Runner, c.LeadBuckets)
+				default:
+					culprit = c.Runner
+				}
+			}
+			appP99 := "-"
+			if inc.AppImpact != nil && inc.AppImpact.PeakP99MS > 0 {
+				appP99 = humanMS(inc.AppImpact.PeakP99MS)
+			}
+			rows = append(rows, []string{
+				inc.ID, inc.Class,
+				fmt.Sprintf("%s-%s", humanS(inc.StartS), humanS(inc.EndS)),
+				strings.Join(hot, ","), culprit, appP99,
+			})
+		}
+		writeTable(b, p, rows, "    ")
+		if n := len(a.Incidents) - maxIncidentRows; n > 0 {
+			fmt.Fprintf(b, "    %s\n", p.paint(dim, fmt.Sprintf("... %d more in result.json", n)))
+		}
+		for _, inc := range a.Incidents[:min(len(a.Incidents), maxIncidentRows)] {
+			for _, s := range inc.Telemetry {
+				fmt.Fprintf(b, "    %s %s: %s %s %s -> %s\n", p.paint(dim, "·"), inc.ID,
+					s.Source, s.Signal, trimNumber(s.Baseline), trimNumber(s.Value))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	if len(a.Correlation) > 0 {
+		parts := make([]string, 0, len(a.Correlation))
+		for _, c := range a.Correlation {
+			parts = append(parts, fmt.Sprintf("%s rho %.2f at lag %+d (%d buckets)", c.Storage, c.Rho, c.BestLag, c.NBuckets))
+		}
+		fmt.Fprintf(b, "  %s %s\n\n", p.paint(bold, pad("TRACKING", labelWidth)), p.paint(dim, strings.Join(parts, " · ")))
+	}
+}
+
+// humanS renders an offset in seconds.
+func humanS(v float64) string {
+	if v == float64(int64(v)) {
+		return fmt.Sprintf("%ds", int64(v))
+	}
+	return fmt.Sprintf("%.1fs", v)
+}
+
+func trimNumber(v float64) string {
+	if v == float64(int64(v)) {
+		return strconv.FormatInt(int64(v), 10)
+	}
+	return strconv.FormatFloat(v, 'g', 3, 64)
 }
 
 func writeVerdict(b *strings.Builder, p painter, r *result.Result, opts Options) {

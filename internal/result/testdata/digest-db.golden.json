@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "run_id": "20260924T100000Z-abc123",
+  "run_name": "checkout",
+  "status": "completed",
+  "started_at": "2026-09-24T10:00:00Z",
+  "duration_s": 90,
+  "validity": {
+    "state": "valid"
+  },
+  "slo": {
+    "pass": true,
+    "configured": true
+  },
+  "verdict": {
+    "bottleneck": "db",
+    "confidence": "high",
+    "summary": "The database tier is the most likely source of the slowdown. In the one incident that reached users, covering 6s, application latency rose together with the db probe, which went hot first, by 1 bucket. Server-side telemetry corroborated it: postgres locks_waiting moved in the same window.",
+    "evidence": [
+      "inc-1 (correlated) from 30s to 36s: http p99 950ms, db p99 900ms; db led by 1 bucket",
+      "over the whole run, application p99 and db p99 had Spearman rho 0.96 at lag +0 across 90 buckets",
+      "postgres locks_waiting moved from 0 to 14: sessions were waiting on locks",
+      "http 9000 ops, db 9000 ops, redis 9000 ops; 100% of measured buckets held enough samples"
+    ],
+    "caveat": "Shared-clock correlation shows association, not causation.",
+    "next_steps": [
+      "look at the database during 30s-36s: lock waits, long transactions, slow-query log and pg_stat_activity or the processlist",
+      "check the application's database pool size against its concurrency"
+    ]
+  },
+  "incidents": [
+    {
+      "id": "inc-1",
+      "class": "correlated",
+      "start_s": 30,
+      "duration_s": 6,
+      "runners_hot": [
+        "http",
+        "db"
+      ],
+      "culprit": "db",
+      "app_p99_ms": 950.1,
+      "culprit_p99_ms": 900,
+      "lead_buckets": 1,
+      "corroboration": [
+        "postgres locks_waiting moved from 0 to 14"
+      ]
+    }
+  ],
+  "runners": [
+    {
+      "name": "http",
+      "kind": "app",
+      "n": 9000,
+      "achieved_rps": 100,
+      "error_ratio": 0,
+      "p50_ms": 10,
+      "p95_ms": 18,
+      "p99_ms": 20,
+      "service_p99_ms": 20,
+      "client_wait_p99_ms": 0,
+      "dropped_ratio": 0
+    },
+    {
+      "name": "db",
+      "kind": "storage",
+      "n": 9000,
+      "achieved_rps": 100,
+      "error_ratio": 0,
+      "p50_ms": 1,
+      "p95_ms": 1.8,
+      "p99_ms": 2,
+      "service_p99_ms": 2,
+      "client_wait_p99_ms": 0,
+      "dropped_ratio": 0
+    },
+    {
+      "name": "redis",
+      "kind": "storage",
+      "n": 9000,
+      "achieved_rps": 100,
+      "error_ratio": 0,
+      "p50_ms": 0.25,
+      "p95_ms": 0.45,
+      "p99_ms": 0.5,
+      "service_p99_ms": 0.5,
+      "client_wait_p99_ms": 0,
+      "dropped_ratio": 0
+    }
+  ],
+  "correlation": [
+    {
+      "storage": "db",
+      "rho": 0.965,
+      "lag_buckets": 0,
+      "n_buckets": 90
+    },
+    {
+      "storage": "redis",
+      "rho": 0.891,
+      "lag_buckets": 0,
+      "n_buckets": 90
+    }
+  ],
+  "telemetry": [
+    {
+      "source": "postgres",
+      "available": true,
+      "highlights": [
+        "locks_waiting moved from 0 to 14 during inc-1"
+      ]
+    },
+    {
+      "source": "generator",
+      "available": true,
+      "highlights": [
+        "peak cpu_ratio 0.12",
+        "peak sched_latency_p99_ms 0.05"
+      ]
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "investigate-db",
+      "why": "the verdict points at the database tier; look at it during 30s-36s",
+      "action": "investigate",
+      "priority": 1
+    }
+  ],
+  "artifacts": {
+    "run_dir": "runs/20260924T100000Z-abc123",
+    "result": "runs/20260924T100000Z-abc123/result.json"
+  },
+  "truncated": false
+}

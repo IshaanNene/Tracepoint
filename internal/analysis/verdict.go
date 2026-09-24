@@ -251,8 +251,8 @@ func verdictFor(c candidate, a result.Analysis, views []*view, r *result.Result,
 		tier := tierName(c.key)
 		lead := leadPhrase(c.incidents, c.key)
 		v.Summary = fmt.Sprintf(
-			"The %s is the most likely source of the slowdown. In %s of the %s that reached users, covering %s, application latency rose together with the %s probe, which %s.%s",
-			tier, countOf(n), plural(total, "incident"), seconds(secs), c.key, lead, corroborationPhrase(c.incidents, c.key))
+			"The %s is the most likely source of the slowdown. %s, covering %s, application latency rose together with the %s probe, which %s.%s",
+			tier, shareOf(n, total), seconds(secs), c.key, lead, corroborationPhrase(c.incidents, c.key))
 		v.NextSteps = storageNextSteps(c.key, c.incidents)
 	}
 
@@ -479,18 +479,24 @@ func storageNextSteps(runner string, incidents []result.Incident) []string {
 		windows = append(windows, fmt.Sprintf("%s-%s", seconds(inc.StartS), seconds(inc.EndS)))
 	}
 	at := strings.Join(windows, ", ")
+	corroborated := len(signalsFor(incidents, runner)) > 0
 	switch runner {
 	case "db":
-		return []string{
+		out := []string{
 			fmt.Sprintf("look at the database during %s: lock waits, long transactions, slow-query log and pg_stat_activity or the processlist", at),
-			"enable telemetry for the database if it is not on, so lock waits and pool saturation are sampled on the same clock",
-			"check the application's database pool size against its concurrency",
 		}
+		if !corroborated {
+			out = append(out, "enable telemetry for the database, so lock waits and pool saturation are sampled on the same clock")
+		}
+		return append(out, "check the application's database pool size against its concurrency")
 	case "redis":
-		return []string{
+		out := []string{
 			fmt.Sprintf("look at Redis during %s: SLOWLOG, blocking commands, persistence (fork) events and memory pressure", at),
-			"enable telemetry for Redis if it is not on, so blocked clients and throughput are sampled on the same clock",
 		}
+		if !corroborated {
+			out = append(out, "enable telemetry for Redis, so blocked clients and throughput are sampled on the same clock")
+		}
+		return out
 	default:
 		return []string{fmt.Sprintf("look at the %s tier during %s", runner, at)}
 	}
@@ -637,7 +643,17 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-func countOf(n int) string { return fmt.Sprintf("%d", n) }
+// shareOf says how many of the incidents that reached users support the answer.
+func shareOf(n, total int) string {
+	switch {
+	case n == 1 && total == 1:
+		return "In the one incident that reached users"
+	case n == total:
+		return fmt.Sprintf("In all %d incidents that reached users", n)
+	default:
+		return fmt.Sprintf("In %d of the %d incidents that reached users", n, total)
+	}
+}
 
 func seconds(s float64) string {
 	if s == math.Trunc(s) {

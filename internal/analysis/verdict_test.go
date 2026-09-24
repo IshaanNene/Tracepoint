@@ -39,7 +39,7 @@ func TestVerdictDatabase(t *testing.T) {
 	if v.Confidence != result.ConfidenceHigh {
 		t.Fatalf("confidence = %s, want high", v.Confidence)
 	}
-	for _, want := range []string{"database tier", "2 of the 2 incidents", "postgres locks_waiting"} {
+	for _, want := range []string{"database tier", "all 2 incidents that reached users", "postgres locks_waiting"} {
 		if !strings.Contains(v.Summary, want) {
 			t.Errorf("summary lacks %q:\n%s", want, v.Summary)
 		}

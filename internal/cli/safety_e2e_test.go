@@ -328,6 +328,7 @@ redis:
   executor: { rate: 5, max_in_flight: 2 }
   commands:
     - { name: get, type: read, cmd: [GET, "k"] }
+telemetry: { redis: true }
 `, srv.URL, sentinel, sentinel, db, redisSrv.Addr(), sentinel))
 
 	r := exec(t, "run", "-c", cfg, "--output", "json", "--log-level", "debug", "--result-path", resultPath)
@@ -348,6 +349,10 @@ redis:
 		// The redaction must have happened rather than the fields being absent.
 		if !strings.Contains(string(raw), "[redacted]") {
 			t.Error("result.json shows no redaction marker, so the secret may simply be missing rather than redacted")
+		}
+		d := exec(t, "digest", resultPath, "--budget-chars", "0")
+		if strings.Contains(d.stdout, sentinel) || strings.Contains(d.stderr, sentinel) {
+			t.Error("the sentinel secret leaked into the digest")
 		}
 	}
 }

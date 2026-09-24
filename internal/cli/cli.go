@@ -263,6 +263,7 @@ pressure.`),
 		newRunCmd(env, g),
 		newValidateCmd(env, g),
 		newDoctorCmd(env, g),
+		newDigestCmd(env),
 		newSchemaCmd(env),
 		newVersionCmd(env, g),
 	)

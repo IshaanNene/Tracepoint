@@ -2,7 +2,6 @@ package analysis
 
 import (
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/IshaanNene/Tracepoint/internal/result"
@@ -132,7 +131,7 @@ func executorFindings(rn *result.Runner, bucketMS, lagLimit float64) []result.Fi
 				Fix:    "this is a finding about the target, not a fault in the run; lower the rate to measure below saturation",
 			})
 		} else {
-			needed := NeededInFlight(rn, bucketMS)
+			needed := rn.NeededInFlight(bucketMS)
 			out = append(out, result.Finding{
 				Code:     CodeClientCapped,
 				Severity: result.SeverityError,
@@ -144,46 +143,12 @@ func executorFindings(rn *result.Runner, bucketMS, lagLimit float64) []result.Fi
 					"max_in_flight": rn.Executor.MaxInFlight, "needed_in_flight": needed,
 				},
 				Fix: fmt.Sprintf("raise %s.executor.max_in_flight to about %d (Little's Law: %.0f req/s x %.0fms p99 service time)",
-					rn.Name, needed, OfferedRPS(rn, bucketMS), rn.Summary.Service.P99),
+					rn.Name, needed, rn.OfferedRPS(bucketMS), rn.Summary.Service.P99),
 			})
 		}
 	}
 
 	return out
-}
-
-// NeededInFlight is the concurrency the offered rate actually needed, by Little's Law:
-// in flight = rate x service time, at p99 so that the tail does not starve the pool.
-// It is always at least one more than what was configured, since it is only asked
-// for when what was configured proved too few.
-func NeededInFlight(rn *result.Runner, bucketMS float64) int {
-	if rn.Executor == nil {
-		return 0
-	}
-	needed := int(math.Ceil(OfferedRPS(rn, bucketMS) * rn.Summary.Service.P99 / 1000 * 1.2))
-	if needed <= rn.Executor.MaxInFlight {
-		needed = rn.Executor.MaxInFlight * 2
-	}
-	return needed
-}
-
-// OfferedRPS is the rate the schedule asked for over the measured window, which is
-// what a pool has to be sized for - not the lower rate it managed.
-func OfferedRPS(rn *result.Runner, bucketMS float64) float64 {
-	var offered int64
-	var buckets int
-	for i := range rn.Buckets {
-		b := &rn.Buckets[i]
-		if b.Warmup {
-			continue
-		}
-		offered += b.Offered
-		buckets++
-	}
-	if buckets == 0 || offered == 0 || bucketMS <= 0 {
-		return rn.Summary.AchievedRPS
-	}
-	return float64(offered) / (float64(buckets) * bucketMS / 1000)
 }
 
 // serviceTimeRose reports whether the target slowed in the buckets where arrivals

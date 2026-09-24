@@ -1,0 +1,37 @@
+
+TracePoint  checkout
+  completed over 1.5m · 90 bucket(s) of 1.0s · seed 7
+
+  RUN       VALID
+  SLO       no budgets configured
+
+  RUNNER  KIND     N     RPS    ERR    p50     p95     p99     max
+  http    app      9000  100.0  0.00%  10ms    18ms    20ms    0
+  db      storage  9000  100.0  0.00%  1.0ms   1.8ms   2.0ms   0
+  redis   storage  9000  100.0  0.00%  0.25ms  0.45ms  0.50ms  0
+
+  INCIDENTS 2
+    ID     CLASS         WINDOW   HOT      CULPRIT  APP p99
+    inc-1  correlated    30s-36s  http,db  db (+1)  950ms
+    inc-2  storage_only  60s-62s  redis    -        21ms
+    · inc-1: postgres locks_waiting 0 -> 14
+
+  TRACKING  db rho 0.96 at lag +0 (90 buckets) · redis rho 0.86 at lag +0 (90 buckets)
+
+  VERDICT   DB  confidence: high
+    The database tier is the most likely source of the slowdown. In the one
+    incident that reached users, covering 6s, application latency rose together
+    with the db probe, which went hot first, by 1 bucket. Server-side telemetry
+    corroborated it: postgres locks_waiting moved in the same window.
+    · inc-1 (correlated) from 30s to 36s: http p99 950ms, db p99 900ms; db led
+      by 1 bucket
+    · over the whole run, application p99 and db p99 had Spearman rho 0.96 at
+      lag +0 across 90 buckets
+    · postgres locks_waiting moved from 0 to 14: sessions were waiting on locks
+    · http 9000 ops, db 9000 ops, redis 9000 ops; 100% of measured buckets held
+      enough samples
+    Shared-clock correlation shows association, not causation.
+    → look at the database during 30s-36s: lock waits, long transactions,
+      slow-query log and pg_stat_activity or the processlist
+    → check the application's database pool size against its concurrency
+

@@ -10,8 +10,10 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/IshaanNene/Tracepoint/internal/analysis"
 	clirender "github.com/IshaanNene/Tracepoint/internal/render/cli"
 	"github.com/IshaanNene/Tracepoint/internal/result"
+	"github.com/IshaanNene/Tracepoint/internal/result/resulttest"
 )
 
 func TestMain(m *testing.M) { goleak.VerifyTestMain(m) }
@@ -253,4 +255,22 @@ func TestRunWithNoBudgetsSaysSo(t *testing.T) {
 	if !strings.Contains(out, "no budgets configured") {
 		t.Error("a run with no budgets should say so rather than implying it passed something")
 	}
+}
+
+// A run with a database stall and corroborating telemetry: the incident table, the
+// signal that moved, the whole-run tracking line and the verdict that follows.
+func TestRenderIncidents(t *testing.T) {
+	b := resulttest.NewRun(90).Fault("db", 30, 34, 900).Fault("http", 31, 35, 950).
+		Fault("redis", 60, 61, 150)
+	var samples []map[string]any
+	for i := range 90 {
+		v := 0.0
+		if i >= 30 && i <= 34 {
+			v = 14
+		}
+		samples = append(samples, map[string]any{"t_ms": float64(i * 1000), "locks_waiting": v})
+	}
+	b.R.Telemetry = &result.Telemetry{Postgres: &result.SamplerSeries{Available: true, Samples: samples}}
+	r := b.Analysed(analysis.Inputs{})
+	golden(t, "incidents", render(t, r, clirender.Options{}))
 }

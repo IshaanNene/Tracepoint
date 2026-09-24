@@ -225,6 +225,8 @@ func (e *env) run(t *testing.T, sc scenario) (*result.Result, *span) {
 		Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr,
 		Args:   []string{"run", "-c", cfgPath, "--result-path", resultPath, "--output", "json", "--log-level", "warn"},
 		Lookup: func(string) (string, bool) { return "", false },
+		// Every run writes a directory; keep it with the scenario, not in the tree.
+		RunRoot: filepath.Join(e.dir, "runs"),
 	})
 	raw, err := os.ReadFile(resultPath)
 	if err != nil {
@@ -352,6 +354,24 @@ func dumpAnalysis(t *testing.T, r *result.Result) {
 		Verdict   result.Verdict                `json:"verdict"`
 	}{r.Analysis.Validity, r.Analysis.HotBuckets, r.Analysis.Incidents, r.Analysis.Verdict}, "", "  ")
 	t.Logf("analysis:\n%s", b)
+
+	// The generator's own health around each incident: a stall shows here as dispatch
+	// lag rising on every runner at once while GC pauses and scheduler latency stay
+	// flat - the whole process paused, not the target slowed.
+	if r.Telemetry == nil || r.Telemetry.Generator == nil {
+		return
+	}
+	for _, inc := range r.Analysis.Incidents {
+		for _, s := range r.Telemetry.Generator.Samples {
+			ms, ok := s["t_ms"].(float64)
+			if !ok || ms < inc.StartS*1000-2000 || ms > inc.EndS*1000+2000 {
+				continue
+			}
+			if line, err := json.Marshal(s); err == nil {
+				t.Logf("generator near %s: %s", inc.ID, line)
+			}
+		}
+	}
 }
 
 func abs(v int) int {

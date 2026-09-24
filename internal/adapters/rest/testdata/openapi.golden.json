@@ -1492,6 +1492,96 @@
         }
       }
     },
+    "/v1/ops/render_report": {
+      "post": {
+        "description": "Render a finished run as Markdown, JUnit XML or the offline HTML report, from its result.json, and write it into the run directory. Use markdown to post a summary on a pull request or in a CI job summary; use html to hand a human the full report (every run already writes report.html, so this only re-renders it). For deciding what to do next, read get_run_digest instead: it is smaller and carries the recommendations.",
+        "operationId": "render_report",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "description": "The finished run to render."
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "markdown (default): a summary sized for a pull-request comment or CI job summary, returned inline. junit: JUnit XML whose failures match the exit codes, returned inline. html: the offline report for a human, written to the run directory; only its path is returned.",
+                    "enum": [
+                      "markdown",
+                      "junit",
+                      "html"
+                    ]
+                  }
+                },
+                "required": [
+                  "run_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "Where the report was written, inside the run directory."
+                    },
+                    "bytes": {
+                      "type": "integer"
+                    },
+                    "content": {
+                      "type": "string",
+                      "description": "The report itself, for markdown and junit. Absent for html, which is for a person to open, not for a model to read: give the human the path."
+                    }
+                  },
+                  "required": [
+                    "run_id",
+                    "format",
+                    "path",
+                    "bytes"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Render a run's report"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Render a run's report",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": false
+        }
+      }
+    },
     "/v1/ops/scaffold_config": {
       "post": {
         "description": "Write a commented starter configuration for an application and, optionally, the database and Redis it uses, probing each storage tier alongside the application so a slowdown can be attributed. Use it when there is no configuration yet. It contacts nothing. Ask the human which targets and environments are allowed and what the SLOs are before running anything it produces.",

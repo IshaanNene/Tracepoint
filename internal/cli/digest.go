@@ -38,22 +38,7 @@ A recommendation whose action is rerun carries the exact --set overrides that ap
   tracepoint digest result.json | jq '.recommendations[] | select(.action == "rerun")'`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			path, err := resolveResultPath(args[0])
-			if err != nil {
-				// Not a path: a run id, resolved through the run store.
-				store, serr := sf.open(env)
-				if serr != nil {
-					return err
-				}
-				r, gerr := store.Get(args[0])
-				if gerr != nil {
-					return err
-				}
-				if path, err = resolveResultPath(r.Dir); err != nil {
-					return err
-				}
-			}
-			res, err := readResult(path)
+			res, _, err := loadResult(env, sf, args[0])
 			if err != nil {
 				return err
 			}
@@ -75,6 +60,28 @@ A recommendation whose action is rerun carries the exact --set overrides that ap
 	cmd.Flags().IntVar(&budget, "budget-chars", result.DefaultDigestBudget,
 		"cut the digest to at most this many characters, dropping the lowest-priority content first; 0 for no limit")
 	return cmd
+}
+
+// loadResult reads a result named by a path, a run directory or a run id, and
+// returns the file it came from.
+func loadResult(env Env, sf storeFlags, arg string) (*result.Result, string, error) {
+	path, err := resolveResultPath(arg)
+	if err != nil {
+		// Not a path: a run id, resolved through the run store.
+		store, serr := sf.open(env)
+		if serr != nil {
+			return nil, "", err
+		}
+		r, gerr := store.Get(arg)
+		if gerr != nil {
+			return nil, "", err
+		}
+		if path, err = resolveResultPath(r.Dir); err != nil {
+			return nil, "", err
+		}
+	}
+	res, err := readResult(path)
+	return res, path, err
 }
 
 // resolveResultPath accepts a result file or a run directory that holds one.

@@ -114,7 +114,7 @@ func TestRegistryIsComplete(t *testing.T) {
 			t.Errorf("%s: the description must say what it does and when to use it", op.Name)
 		}
 	}
-	want := "get_policy get_run_digest get_run_section get_run_status list_runs plan_run scaffold_config start_run stop_run validate_config wait_for_run"
+	want := "get_policy get_run_digest get_run_section get_run_status list_runs plan_run render_report scaffold_config start_run stop_run validate_config wait_for_run"
 	if got := strings.Join(names, " "); got != want {
 		t.Fatalf("operations = %s", got)
 	}
@@ -291,6 +291,18 @@ func TestAgentLoop(t *testing.T) {
 	}
 	if _, err = call(t, h, "get_run_section", map[string]any{"run_id": id, "section": "timeline", "runner": "nope"}); code(err) != errs.CodeOpsInvalidInput {
 		t.Fatalf("an unknown runner: %v", err)
+	}
+
+	rep, err := call(t, h, "render_report", map[string]any{"run_id": id})
+	if ro, ok := rep.(*ops.ReportOut); err != nil || !ok || ro.Format != "markdown" || !strings.HasPrefix(ro.Content, "### TracePoint: ") {
+		t.Fatalf("render_report markdown: %v %+v", err, rep)
+	}
+	rep, err = call(t, h, "render_report", map[string]any{"run_id": id, "format": "html"})
+	if ro, ok := rep.(*ops.ReportOut); err != nil || !ok || ro.Content != "" || ro.Bytes < 50_000 {
+		t.Fatalf("render_report html returns a path, not the page: %v %+v", err, rep)
+	}
+	if _, err = call(t, h, "render_report", map[string]any{"run_id": id, "format": "pdf"}); code(err) != errs.CodeOpsInvalidInput {
+		t.Fatalf("an unknown format: %v", err)
 	}
 
 	list, err := call(t, h, "list_runs", map[string]any{})

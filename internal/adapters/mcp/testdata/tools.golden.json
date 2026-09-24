@@ -1166,6 +1166,69 @@
       "destructiveHint": false,
       "idempotentHint": true,
       "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Render a run's report"
+    },
+    "description": "Render a finished run as Markdown, JUnit XML or the offline HTML report, from its result.json, and write it into the run directory. Use markdown to post a summary on a pull request or in a CI job summary; use html to hand a human the full report (every run already writes report.html, so this only re-renders it). For deciding what to do next, read get_run_digest instead: it is smaller and carries the recommendations.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "description": "markdown (default): a summary sized for a pull-request comment or CI job summary, returned inline. junit: JUnit XML whose failures match the exit codes, returned inline. html: the offline report for a human, written to the run directory; only its path is returned.",
+          "enum": [
+            "markdown",
+            "junit",
+            "html"
+          ],
+          "type": "string"
+        },
+        "run_id": {
+          "description": "The finished run to render.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "name": "render_report",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        },
+        "content": {
+          "description": "The report itself, for markdown and junit. Absent for html, which is for a person to open, not for a model to read: give the human the path.",
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Where the report was written, inside the run directory.",
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "format",
+        "path",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "title": "Render a run's report"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
       "readOnlyHint": true,
       "title": "Write a starter configuration"
     },

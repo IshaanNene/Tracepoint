@@ -14,9 +14,12 @@ import (
 )
 
 func newDigestCmd(env Env) *cobra.Command {
-	var budget int
+	var (
+		budget int
+		sf     storeFlags
+	)
 	cmd := &cobra.Command{
-		Use:   "digest <result.json|run-dir>",
+		Use:   "digest <run|result.json|run-dir>",
 		Short: "Print the compact, prioritised summary of a run that an agent reads first",
 		Long: strings.TrimSpace(`
 Print the digest of a finished run: validity, SLO outcome, the verdict with its evidence,
@@ -29,6 +32,7 @@ first; when anything was dropped, truncated is true and more says how to get it.
 
 A recommendation whose action is rerun carries the exact --set overrides that apply it.`),
 		Example: strings.TrimSpace(`
+  tracepoint digest 20260924T100000Z-abc123
   tracepoint digest runs/20260924T100000Z-abc123
   tracepoint digest result.json --budget-chars 16000
   tracepoint digest result.json | jq '.recommendations[] | select(.action == "rerun")'`),
@@ -36,7 +40,18 @@ A recommendation whose action is rerun carries the exact --set overrides that ap
 		RunE: func(_ *cobra.Command, args []string) error {
 			path, err := resolveResultPath(args[0])
 			if err != nil {
-				return err
+				// Not a path: a run id, resolved through the run store.
+				store, serr := sf.open(env)
+				if serr != nil {
+					return err
+				}
+				r, gerr := store.Get(args[0])
+				if gerr != nil {
+					return err
+				}
+				if path, err = resolveResultPath(r.Dir); err != nil {
+					return err
+				}
 			}
 			res, err := readResult(path)
 			if err != nil {
@@ -56,6 +71,7 @@ A recommendation whose action is rerun carries the exact --set overrides that ap
 			return nil
 		},
 	}
+	sf.register(cmd)
 	cmd.Flags().IntVar(&budget, "budget-chars", result.DefaultDigestBudget,
 		"cut the digest to at most this many characters, dropping the lowest-priority content first; 0 for no limit")
 	return cmd
@@ -76,7 +92,7 @@ func resolveResultPath(arg string) (string, error) {
 		return arg, nil
 	case errors.Is(err, fs.ErrNotExist):
 		return "", errs.New(errs.CodeResultNotFound, "no result file or run directory at %s", arg).
-			WithHint("pass the path to a result.json or to a run directory; run ids are resolved once the run store lands")
+			WithHint("pass a run id, a run directory or the path to a result.json; `tracepoint list` shows the runs")
 	default:
 		return "", errs.Wrap(errs.CodeIOReadFailed, err, "reading %s", arg)
 	}

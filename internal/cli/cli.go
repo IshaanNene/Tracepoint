@@ -19,6 +19,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/user"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -46,6 +47,26 @@ type Env struct {
 	// exit immediately - a second interrupt - can be exercised by a test rather than
 	// taking the test binary down with it. Defaults to os.Exit.
 	Exit func(int)
+	// RunRoot is where run directories are created when neither --run-root nor the
+	// policy says. Injected so tests never write into the source tree.
+	RunRoot string
+	// Executable is the binary a detached run re-executes. Defaults to this one.
+	Executable string
+	// Actor names whoever is running commands, for the audit log. Defaults to
+	// cli:<user>.
+	Actor string
+}
+
+// actor names the caller for the audit log.
+func (e Env) actor() string {
+	if e.Actor != "" {
+		return e.Actor
+	}
+	name := "unknown"
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		name = u.Username
+	}
+	return "cli:" + name
 }
 
 func (e Env) exit(code int) {
@@ -264,6 +285,12 @@ pressure.`),
 		newValidateCmd(env, g),
 		newDoctorCmd(env, g),
 		newDigestCmd(env),
+		newStatusCmd(env, g),
+		newWaitCmd(env, g),
+		newStopCmd(env, g),
+		newListCmd(env, g),
+		newGCCmd(env, g),
+		newDetachedCmd(env),
 		newSchemaCmd(env),
 		newVersionCmd(env, g),
 	)

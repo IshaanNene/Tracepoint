@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,13 +22,21 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m,
-		goleak.IgnoreAnyFunction("net/http.(*persistConn).readLoop"),
-		goleak.IgnoreAnyFunction("net/http.(*persistConn).writeLoop"),
-		// signal.NotifyContext leaves a watcher for the life of the process.
-		goleak.IgnoreAnyFunction("os/signal.loop"),
-		goleak.IgnoreAnyFunction("os/signal.signalWaitUntilIdle"),
-	)
+	code := m.Run()
+	cleanupBinary()
+	if code == 0 {
+		if err := goleak.Find(
+			goleak.IgnoreAnyFunction("net/http.(*persistConn).readLoop"),
+			goleak.IgnoreAnyFunction("net/http.(*persistConn).writeLoop"),
+			// signal.NotifyContext leaves a watcher for the life of the process.
+			goleak.IgnoreAnyFunction("os/signal.loop"),
+			goleak.IgnoreAnyFunction("os/signal.signalWaitUntilIdle"),
+		); err != nil {
+			fmt.Fprintln(os.Stderr, "goleak:", err)
+			code = 1
+		}
+	}
+	os.Exit(code)
 }
 
 type run struct {
@@ -41,15 +50,31 @@ func exec(t *testing.T, args ...string) run {
 	t.Helper()
 	var out, errBuf bytes.Buffer
 	code := cli.Execute(context.Background(), cli.Env{
-		Stdin:  strings.NewReader(""),
-		Stdout: &out,
-		Stderr: &errBuf,
-		Args:   args,
-		Lookup: func(string) (string, bool) { return "", false },
-		IsTTY:  false,
+		Stdin:   strings.NewReader(""),
+		Stdout:  &out,
+		Stderr:  &errBuf,
+		Args:    args,
+		Lookup:  func(string) (string, bool) { return "", false },
+		IsTTY:   false,
+		RunRoot: runRoot(t),
+		Actor:   "test",
 	})
 	return run{code: code, stdout: out.String(), stderr: errBuf.String()}
 }
+
+// runRoot is one run root per test, so tests never share runs, never trip each other's
+// max_concurrent_runs and never write into the source tree.
+func runRoot(t *testing.T) string {
+	t.Helper()
+	if v, ok := roots.Load(t.Name()); ok {
+		return v.(string)
+	}
+	dir := filepath.Join(t.TempDir(), "runs")
+	roots.Store(t.Name(), dir)
+	return dir
+}
+
+var roots sync.Map
 
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()

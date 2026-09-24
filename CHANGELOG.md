@@ -17,6 +17,18 @@ before it is removed in the next major.
 
 ### Added
 
+- Phase 4: agent interfaces. Every run gets a directory in the run store with its
+  state, events, result, digest, effective configuration and log; `run --detach`
+  returns once preflight passes, and `status`, `wait`, `stop`, `list` and `gc` manage
+  runs. `--events -` streams NDJSON ending in `run.finished` with the digest. `--from
+  <run>` re-runs a run's effective configuration, which keeps `${ENV}` references and
+  redacts inline secrets. `--set` addresses map keys. An audit log records every
+  start and stop with its actor. Eleven agent operations in one registry, served as
+  MCP tools (`tracepoint mcp`, stdio or streamable HTTP) with schema, documentation
+  and run resources and three prompts, and as a REST API with an OpenAPI 3.1
+  document (`tracepoint serve`); both HTTP transports require a bearer token, check
+  Host and Origin, send no CORS headers and bind to loopback. `tracepoint
+  capabilities` and `tracepoint init`.
 - Phase 3: analysis. Hot buckets by the absolute and relative rules, incidents
   classified `correlated`, `storage_only`, `app_only`, `client_limited` or
   `unobserved`, culprit ranking by lead time, severity and telemetry corroboration

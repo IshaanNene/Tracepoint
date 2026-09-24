@@ -96,9 +96,14 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `internal/capacity` | Auto-ramp search, boundary confirmation, USL fit |
 | `internal/compare` | Quantile confidence intervals, gates, incident diff |
 | `internal/result` | The result model, schema versions, migrations, the digest builder and its recommendations (ADR-004). `resulttest` builds synthetic runs for tests |
-| `internal/runstore` | Run directories, state, events, detach/status/wait/stop, audit log |
-| `internal/ops` | The one operation registry; MCP, REST and `capabilities` are generated from it (ADR-008) |
+| `internal/runstore` | Run directories, atomic `state.json`, the stop sentinel, heartbeats, lost detection, `wait`, GC, the audit log, and the lock that makes the concurrent-run limit atomic |
+| `internal/events` | The NDJSON event emitter: sequence numbers, the shared clock, fan-out to files, stdout and callbacks |
+| `internal/session` | The one path a run takes, whoever starts it: load, prepare its directory, preflight, execute (or detach into a child process), finish, audit. The CLI and the operations both call it, so a detached run and a foreground run cannot behave differently |
+| `internal/plan` | What a configuration would do under a policy - offered load, targets, envelope, warnings - for `--dry-run` and `plan_run` |
+| `internal/ops` | The one operation registry; MCP, REST and `capabilities` are generated from it (ADR-008). Schemas are derived from the handlers' types. `opstest` runs launched runs in-process for adapter tests |
 | `internal/adapters/{mcp,rest}` | Protocol plumbing, no logic |
+| `internal/adapters/guard` | The HTTP transports' shared protection: bearer token, Host allowlist, Origin refusal, no CORS, loopback-only binding (§6.5) |
+| `docs` (Go package) | Embeds `METHODOLOGY.md` and `ERRORS.md`, which the MCP server offers as resources |
 | `internal/render/{cli,html,markdown,junit}` | Pure functions of `result.json` |
 | `internal/detect` | Project detection and OpenAPI import |
 | `internal/schemas` | The JSON Schemas themselves. They live inside the package because `go:embed` cannot reach outside it, which is what guarantees the binary ships the contract it enforces |

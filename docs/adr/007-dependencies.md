@@ -34,8 +34,14 @@ proves the toolchain rather than the module cache.
 | `DataDog/sketches-go` | DDSketch | The reference implementation of the algorithm in ADR-002, with the relative-error guarantee we depend on | Apache-2.0 |
 | `google.golang.org/protobuf` | — (indirect) | Not chosen: `sketches-go`'s `ddsketch` package imports its own protobuf bindings, so this arrives transitively even though TracePoint uses the library's non-proto binary codec. Recorded here so nothing in `go.mod` is unexplained | BSD-3-Clause |
 | `charmbracelet/bubbletea` + `lipgloss` | Live terminal view | TTY-only, and the only dependency the core can run without | MIT |
-| `modelcontextprotocol/go-sdk` | MCP server | The official SDK. Writing a protocol implementation by hand guarantees drift from a spec that is still moving | MIT |
+| `modelcontextprotocol/go-sdk` | MCP server | The official SDK. Writing a protocol implementation by hand guarantees drift from a spec that is still moving | MIT, relicensing to Apache-2.0 (verified at v1.8.0: new contributions are Apache-2.0, older ones remain MIT; both permissive) |
+| `google/jsonschema-go` | Operation input and output schemas | Arrives with the MCP SDK, which uses it for tool schemas. Deriving each operation's schemas from its handler's Go types with it, and validating input against exactly the schema the agent was shown, is what keeps the three surfaces from drifting (added in phase 4) | MIT |
 | `santhosh-tekuri/jsonschema/v6` | JSON Schema validation in tests | Validates every emitted document against its own schema (§6.7). 2020-12 support; test-scope | Apache-2.0 |
+
+The MCP SDK brings, indirectly: `yosida95/uritemplate/v3` (resource templates),
+`segmentio/encoding` and `segmentio/asm` (its JSON codec), `golang.org/x/oauth2`
+(its optional auth support, unused here) and `golang.org/x/time`. None is imported
+directly; they are listed so nothing in `go.mod` is unexplained.
 
 Licences in the table are the modules' stated licences at the time of this record.
 Each is re-verified when the dependency is actually added, and the SBOM plus a

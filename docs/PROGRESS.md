@@ -11,12 +11,92 @@
 | 0 | Plan: spec stored, ADRs, JSON Schemas, docs, skeleton, Makefile, lint, CI stub | Complete, approved |
 | 1 | Engine slice: clock, schedule, sketches, recorder, arrival-rate executor, HTTP runner, `result.json` v1, CLI table, JSON output, exit codes | Complete, approved |
 | 2 | Storage and safety: SQL and Redis runners, templates, `--set`, policy, guards, redaction, preflight, `doctor`, `--dry-run` | Complete, approved |
-| 3 | Analysis: telemetry samplers, incidents, culprits, correlation, verdicts, validity, digest; faultbox and the known-answer suite | **Complete — awaiting approval** |
-| 4 | Agent interfaces: run store, detach, events, audit log, ops registry, `capabilities`, MCP, REST, parity tests | Not started |
+| 3 | Analysis: telemetry samplers, incidents, culprits, correlation, verdicts, validity, digest; faultbox and the known-answer suite | Complete, approved |
+| 4 | Agent interfaces: run store, detach, events, audit log, ops registry, `capabilities`, MCP, REST, parity tests | **Complete — awaiting approval** |
 | 5 | Human interfaces: HTML, Markdown, JUnit, `report`, TUI | Not started |
 | 6 | Journeys and onboarding: vus executor, extract/expect, feeders, think time, cookies, strain finder, `quick`, `init` | Not started |
 | 7 | Capacity and compare: auto-ramp, USL, confidence intervals, gates, incident diff | Not started |
 | 8 | Integration and release: Go facade, `tracepointtest`, Action, Docker, skill, contract CI, fuzzing, soak, GoReleaser, agent dogfood | Not started |
+
+## Phase 4 — complete
+
+An agent can now drive TracePoint end to end without a terminal: over MCP, over REST
+or from a shell, it can read the policy, scaffold and validate a configuration, plan
+it, start a run that outlives the call, poll it within a tool-call deadline, stop it,
+and read its digest or any section of its result. All three surfaces come from one
+registry, and a parity test holds them together.
+
+### Delivered
+
+| Deliverable | Where | Evidence |
+| --- | --- | --- |
+| Run store: `runs/<UTC timestamp>-<id>/` with `state.json` (atomic), `events.ndjson`, `result.json`, `digest.json`, `config.effective.yaml`, `run.log`; terminal status is final; heartbeat every 2s, `lost` after 15s stale with a dead pid; `STOP` sentinel; GC that never removes a live run; `audit.ndjson` | `internal/runstore` | `runstore_test.go`: lost detection on a fake clock, the sentinel, `Wait`, GC, id/prefix/suffix/path resolution; `TestCreateLimitedIsAtomic` |
+| The concurrent-run limit checked and the run created under one lock (process mutex and a `flock` on the run root) | `runstore.CreateLimited` | `TestCreateLimitedIsAtomic`: 16 concurrent creators across two stores on one root, exactly one wins; the test fails with the locks removed |
+| NDJSON events: `run.started`, `preflight.completed`, `bucket.sealed`, `incident.opened/closed`, `warning`, `run.finished` with the digest embedded; sequence-numbered, on the run clock | `internal/events`, `internal/engine/events.go`, `internal/session` | Every event validated against `events.schema.json`; a failing sink never stops a run; `TestEventsOnStdout` |
+| One run path for every caller: load, prepare, preflight, execute or detach, finish, audit | `internal/session` | Exercised by the CLI, ops and adapter suites (76% of its functions' statements across them) |
+| `run --detach` returns only after validation and preflight pass; the child gets its hand-off (including resolved secrets) on stdin, never on disk | `session/detach.go`, hidden `__run-detached` | `TestDetachReportsPreflightSynchronously`, `TestDetachWaitStop` (real binary, real child process) |
+| `status`, `wait` (exit 5 on timeout, the run's own code when it ends, 3 if lost), `stop` (`--force` kills), `list`, `gc`; `digest` accepts run ids | `internal/cli/runs.go` | `TestListStatusAndGC`, `TestDetachWaitStop` |
+| `config.effective.yaml` keeps `${ENV}` references, redacts inline secrets; `--from <run>` re-runs it and refuses until a redacted secret is re-supplied with `--set` | `internal/config/effective.go` | `TestEffectiveYAMLKeepsReferencesAndRedactsInlineSecrets`, `TestFromNeedsRedactedSecretsAgain`; no secret appears in any artifact |
+| `--set` on map keys (`http.headers.Authorization=...`) | `internal/config/set.go` | `TestSetAddressesMapKeys` |
+| Operation registry: 11 operations with model-oriented descriptions, annotations, schemas derived from handler types, strict validated input; the server's policy fixed at startup; `config_path` confined to the server directory, symlinks included | `internal/ops` | `ops_test.go`: `TestInputValidation`, `TestPolicyIsTheServers`, `TestPolicyCannotBeExceeded`, `TestConfigSources`, `TestAgentLoop`, `TestStopRun` |
+| MCP server (official Go SDK): tools with structured content and a text summary, `isError` results carrying the envelope; schema and docs resources; digest and result templates; three prompts; stdio or streamable HTTP | `internal/adapters/mcp`, `tracepoint mcp` | `mcp_test.go` over the SDK's in-memory transport; `tools.golden.json`; `TestAgentLoopThroughMCPStdio` against the real binary |
+| REST server: `POST /v1/ops/<name>`, generated OpenAPI 3.1, health check; statuses by error class | `internal/adapters/rest`, `tracepoint serve` | `rest_test.go`, `openapi.golden.json`; `TestAgentLoopThroughServe` against the real binary with detached runs |
+| HTTP guard: bearer token (constant-time), Host allowlist with loopback aliases, Origin refused unless allowed, preflights refused, no CORS headers ever, loopback bind unless `--allow-remote`, generated token in a 0600 file | `internal/adapters/guard` | `TestGuard` (each check alone, and that no response carries `Access-Control-*`), `TestGuardConstruction` |
+| `capabilities`: generated from the cobra tree and the registries | `internal/cli/agents.go` | `TestCapabilities` |
+| Parity: registry = MCP tools = REST paths = `capabilities.operations`; every operation's CLI equivalent names a real command and real flags | `internal/cli/parity_test.go` | `TestParity` |
+| `init` (the same scaffold as `scaffold_config`) | `internal/cli/agents.go` | `TestInit`, `TestScaffoldValidates` |
+
+### Evidence
+
+```
+$ make check
+  fmt, vet, golangci-lint (0 issues), race tests, contract checks: all pass
+  govulncheck: could not run - vuln.go.dev is not reachable from this environment (CI runs it)
+$ GOOS=windows go build ./... && GOOS=darwin go build ./...     # both build
+coverage, own package:   events 95.5%  plan 89.4%  mcp 86.7%  rest 84.0%  config 80.7%
+                         runstore 78.2%  ops 77.9%
+coverage, across suites: guard 88%  runstore 84%  session 77%  (mean of function coverage;
+                         both are exercised mainly from the CLI, ops and REST suites)
+```
+
+Checked by hand with the real binary: detach, status, list, wait while running (exit 5),
+stop (interrupted, exit 3, partial result written), `--from` refusing a redacted secret
+and succeeding with `--set`, `--events -` producing sequence 1..n ending in
+`run.finished` with the digest, `gc`, and no secret in any file under the run root.
+
+### Bugs found, and fixed
+
+| Found by | Bug | Fix |
+| --- | --- | --- |
+| Self-review | Two `start_run` calls arriving together (REST handlers and MCP tool calls run in parallel) could both count the active runs before either created one, and both start under a policy allowing one | `CreateLimited` counts and creates under one lock; a regression test that fails without it |
+| The race detector | The progress snapshot was read by the heartbeat while the sweeper wrote it | Guarded by a mutex |
+| Writing `config.effective.yaml` | A header comment containing `${ENV}` was interpolated, because interpolation runs on the raw text, comments included | Reworded; interpolating comments stays, as the spec's "any part of the document" |
+| The `--from` test | A redacted password inside a DSN is URL-escaped, so the redaction marker was not recognised and `--from` did not ask for the secret again | Both spellings are recognised |
+| `capabilities` | `init --out` claimed the shorthand `-o`, already the global `--output`; cobra panics merging them | No shorthand on `--out` |
+
+### Deviations from the spec, and judgements it left open
+
+| Item | Reason |
+| --- | --- |
+| Adapters reach the core through `internal/session` and `internal/ops`, not the public Go facade | The facade is phase 8 (§12). The operations are written against `session`, which is the facade's intended body, so the phase 8 change is a move rather than a rewrite |
+| `compare_runs` is not in the registry yet | `compare` is phase 7; the operation arrives with it, and the parity test will hold it then |
+| `incident.opened` and `incident.closed` are emitted when the run ends, not live | Incidents are a whole-run analysis (§5.5 merges and classifies over the full timeline). A live, provisional incident stream would disagree with the final result |
+| `level.started` and `level.completed` are declared but not emitted | They belong to auto-ramp, phase 7 |
+| `report.html` is listed in the run's artifacts but not written | The HTML report is phase 5 |
+| An out-of-bounds `config_path` is `OPS_INVALID_INPUT` (HTTP 400), not a policy refusal | It is malformed input, not something a human could grant |
+| `init` arrives in phase 4 rather than 6 | `scaffold_config` needed the scaffold; the command costs nothing more. Phase 6 adds project detection to it |
+| The server policy defaults to `ServerDefault()`: 500 req/s per runner, 512 in flight, 10m, one run at a time, no writes, private targets | Tighter than the CLI default because the caller is a program and nobody is necessarily watching (§6.5) |
+| The token lives in `<run-root>/.<serve|mcp>-token` unless given | It must survive restarts so a configured client keeps working, and must not be printed where logs are collected |
+| `wait_for_run` is capped at 50s per call | Below common tool-call deadlines; the agent polls in a loop it controls (ADR-008) |
+
+### Risks carried into phase 5
+
+| Risk | Mitigation |
+| --- | --- |
+| On non-unix platforms the concurrent-run lock is per process, and liveness cannot be checked, so a run is `lost` on a stale heartbeat alone | Both are documented at the code. Windows builds; its detach path has not been run |
+| The MCP specification and SDK are still moving | The SDK is pinned; the tool list is a golden file, so any change in what an agent sees is a reviewed diff |
+| `session` has little coverage from its own package | Its paths are covered by the CLI, ops and adapter suites, including real detached child processes |
+| `govulncheck` still cannot reach vuln.go.dev from here | CI runs it; this phase added the MCP SDK and its indirect modules, all recorded in ADR-007 |
 
 ## Phase 3 — complete
 

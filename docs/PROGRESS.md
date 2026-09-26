@@ -82,6 +82,16 @@ the spec's "clean run → zero incidents" does not hold at this sample size on t
 
 Options, in the report; nothing has been changed.
 
+**After review, option 1 (4× the clean scenario's rates on every tier) was tried and
+rejected on evidence**: 2 of 8 runs failed, worse than before. In one, the extra load
+itself stalled the generator in three buckets and the run was invalid. In the other,
+at 200 operations a bucket, a ~20ms whole-process pause landed on requests already
+in flight: HTTP service p99 went to 21.5ms, while every runner's client-wait p99 rose
+by 1-5ms together - short of the stall rule's 5ms floor, so the bucket was not set
+aside. The failures are process pauses on this host, not thin sampling, and more load
+cannot remove them. The change was reverted; what remains is a stall-rule question,
+carried into the phase 7 report.
+
 ### Deviations from the spec, and judgements it left open
 
 | Item | Reason |

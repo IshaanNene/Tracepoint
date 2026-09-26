@@ -362,6 +362,17 @@ func dumpAnalysis(t *testing.T, r *result.Result) {
 		return
 	}
 	for _, inc := range r.Analysis.Incidents {
+		// Each runner's own view of the same seconds: whether the time was spent in
+		// the target (service) or before it (client wait).
+		for _, rn := range r.Runners {
+			for _, b := range rn.Buckets {
+				if b.Index < inc.StartIndex-2 || b.Index > inc.EndIndex+2 {
+					continue
+				}
+				t.Logf("%s bucket %d: n=%d service p50=%.3f p99=%.3f max=%.3f client_wait p99=%.3f in_flight_max=%d",
+					rn.Name, b.Index, b.N, b.Service.P50, b.Service.P99, b.Service.Max, b.ClientWait.P99, b.InFlightMax)
+			}
+		}
 		for _, s := range r.Telemetry.Generator.Samples {
 			ms, ok := s["t_ms"].(float64)
 			if !ok || ms < inc.StartS*1000-2000 || ms > inc.EndS*1000+2000 {

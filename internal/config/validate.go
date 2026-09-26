@@ -32,6 +32,7 @@ func (c *Config) Validate() error {
 	if c.Telemetry != nil {
 		c.validateTelemetry(add)
 	}
+	c.validateDataflow(add)
 
 	if len(problems) == 0 {
 		return nil

@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/IshaanNene/Tracepoint/internal/result"
 )
 
 // Knobs.
@@ -124,10 +122,17 @@ func Judge(l Level) Verdict {
 	return Verdict{OK: true}
 }
 
+// Tried is one level as run, for the knee.
+type Tried struct {
+	Value float64
+	Phase string
+	P99MS float64
+}
+
 // Knee is the first level - by value, confirmation re-runs aside - whose p99 exceeds
 // KneeFactor times the lowest p99 at any lower level: where latency began climbing
 // sharply. Nil when latency never did.
-func Knee(levels []result.CapacityLevel) *float64 {
+func Knee(levels []Tried) *float64 {
 	byValue := map[float64]float64{}
 	for _, l := range levels {
 		if l.Phase == PhaseConfirm || l.P99MS <= 0 {

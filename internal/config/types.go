@@ -431,6 +431,10 @@ type Capacity struct {
 	Refine       string    `yaml:"refine" json:"refine,omitempty"`
 	Resolution   float64   `yaml:"resolution" json:"resolution,omitempty"`
 	Confirm      *bool     `yaml:"confirm" json:"confirm,omitempty"`
+
+	// budgetDefaulted records that run.duration was not given, so the search's budget
+	// is the longest its plan could take - and a policy ceiling may shorten it.
+	budgetDefaulted bool
 }
 
 // Runners lists the runner sections this configuration actually enables, in a stable

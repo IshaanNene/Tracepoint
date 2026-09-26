@@ -37,6 +37,21 @@ func (c *Config) ApplyPolicy(granted policy.Policy) (policy.Policy, []Warning, e
 
 	writes, dangerous, warnings := c.classifyStatements()
 
+	// A search whose budget was defaulted to the longest its plan could take is
+	// shortened to the policy's ceiling rather than refused: the budget only bounds the
+	// search, which stops early and says so. A run.duration someone wrote is held to
+	// the ceiling like any other.
+	if cp := c.Capacity; cp != nil && cp.budgetDefaulted {
+		if limit, has, err := effective.MaxRunDuration(); err == nil && has && c.Run.Duration.D() > limit {
+			warnings = append(warnings, Warning{
+				Code: CodeCapacityBudgetClamped, Severity: "info",
+				Message: fmt.Sprintf("the search could take up to %s; the policy allows %s, so it stops there if it has not finished", c.Run.Duration, limit),
+				Fix:     "narrow capacity.start..max, shorten step_duration, or have a human raise max_duration",
+			})
+			c.Run.Duration = Duration(limit)
+		}
+	}
+
 	var problems []*errs.Error
 	for _, runner := range []string{"db", "redis"} {
 		if err := effective.CheckWrites(runner, writes[runner]); err != nil {
@@ -62,6 +77,18 @@ func (c *Config) ApplyPolicy(granted policy.Policy) (policy.Policy, []Warning, e
 			if err := effective.CheckInFlight(name, ex.MaxInFlight); err != nil {
 				problems = append(problems, asCoded(err))
 			}
+		}
+	}
+	// A capacity search's ceiling is the most it will ever offer.
+	if cp := c.Capacity; cp != nil && cp.Max > 0 {
+		var err error
+		if cp.Knob == "concurrency" {
+			err = effective.CheckInFlight(cp.Runner, int(cp.Max))
+		} else {
+			err = effective.CheckRate(cp.Runner, cp.Max)
+		}
+		if err != nil {
+			problems = append(problems, asCoded(err).WithPath("/capacity/max"))
 		}
 	}
 	if err := c.checkInsecureTLS(effective); err != nil {

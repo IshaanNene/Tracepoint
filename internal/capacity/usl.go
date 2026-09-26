@@ -3,8 +3,6 @@ package capacity
 import (
 	"fmt"
 	"math"
-
-	"github.com/IshaanNene/Tracepoint/internal/result"
 )
 
 // MinUSLPoints and MinR2 decide whether a Universal Scalability Law fit is reported
@@ -14,6 +12,19 @@ const (
 	MinUSLPoints = 4
 	MinR2        = 0.9
 )
+
+// Fit is a Universal Scalability Law fit. When Fitted is false, Reason says why and
+// only R2 may be set.
+type Fit struct {
+	Fitted         bool
+	Reason         string
+	Lambda         float64
+	Sigma          float64
+	Kappa          float64
+	R2             float64
+	PeakN          float64
+	PeakThroughput float64
+}
 
 // Point is one level that held: measured mean concurrency and throughput.
 type Point struct {
@@ -29,7 +40,7 @@ type Point struct {
 // squares, solved exactly. The outer problem is a one-dimensional search over λ,
 // minimising the squared error in throughput itself: a log-spaced scan to find the
 // basin, then golden-section refinement inside it.
-func FitUSL(points []Point) *result.USL {
+func FitUSL(points []Point) Fit {
 	var pts []Point
 	for _, p := range points {
 		if p.N > 0 && p.X > 0 && !math.IsNaN(p.N) && !math.IsNaN(p.X) && !math.IsInf(p.N, 0) && !math.IsInf(p.X, 0) {
@@ -37,7 +48,7 @@ func FitUSL(points []Point) *result.USL {
 		}
 	}
 	if len(pts) < MinUSLPoints {
-		return &result.USL{Reason: fmt.Sprintf("a fit needs at least %d levels that held; there were %d", MinUSLPoints, len(pts))}
+		return Fit{Reason: fmt.Sprintf("a fit needs at least %d levels that held; there were %d", MinUSLPoints, len(pts))}
 	}
 
 	perUnit := 0.0
@@ -78,10 +89,10 @@ func FitUSL(points []Point) *result.USL {
 		r2 = 1 - sse/sst
 	}
 	if r2 < MinR2 {
-		return &result.USL{R2: r2, Reason: fmt.Sprintf("the fit explains too little of what was measured (R² %.2f, below %.2f)", r2, MinR2)}
+		return Fit{R2: r2, Reason: fmt.Sprintf("the fit explains too little of what was measured (R² %.2f, below %.2f)", r2, MinR2)}
 	}
 
-	out := &result.USL{Fitted: true, Lambda: lambda, Sigma: sigma, Kappa: kappa, R2: r2}
+	out := Fit{Fitted: true, Lambda: lambda, Sigma: sigma, Kappa: kappa, R2: r2}
 	if kappa > 0 && sigma < 1 {
 		out.PeakN = math.Sqrt((1 - sigma) / kappa)
 		out.PeakThroughput = model(lambda, sigma, kappa, out.PeakN)

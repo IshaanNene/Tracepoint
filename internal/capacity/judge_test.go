@@ -3,8 +3,6 @@ package capacity
 import (
 	"strings"
 	"testing"
-
-	"github.com/IshaanNene/Tracepoint/internal/result"
 )
 
 func f(v float64) *float64 { return &v }
@@ -107,10 +105,10 @@ func TestJudgeWithNothingCompleted(t *testing.T) {
 }
 
 func TestKnee(t *testing.T) {
-	lv := func(v, p99 float64, phase string) result.CapacityLevel {
-		return result.CapacityLevel{Value: v, P99MS: p99, Phase: phase}
+	lv := func(v, p99 float64, phase string) Tried {
+		return Tried{Value: v, P99MS: p99, Phase: phase}
 	}
-	levels := []result.CapacityLevel{
+	levels := []Tried{
 		lv(50, 10, PhaseDoubling), lv(100, 11, PhaseDoubling), lv(200, 14, PhaseDoubling),
 		lv(400, 90, PhaseDoubling), lv(300, 25, PhaseRefine), lv(300, 400, PhaseConfirm),
 	}

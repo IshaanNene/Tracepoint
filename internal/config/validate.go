@@ -32,6 +32,9 @@ func (c *Config) Validate() error {
 	if c.Telemetry != nil {
 		c.validateTelemetry(add)
 	}
+	if c.Capacity != nil {
+		c.validateCapacity(add)
+	}
 	c.validateDataflow(add)
 
 	if len(problems) == 0 {
@@ -276,7 +279,9 @@ func (c *Config) validateExecutor(e *Executor, path string, add func(*errs.Error
 	// Stages define the shape of the load; the run duration says how long to measure.
 	// If they disagree the run would either stop mid-ramp or idle at the end, and
 	// either way the result would not be the test that was written.
-	if total := e.TotalDuration(); len(e.Stages) > 0 && c.Run.Duration > 0 && total != c.Run.Duration.D() {
+	// A capacity search replaces every profile with its levels, so there is nothing to
+	// agree with.
+	if total := e.TotalDuration(); c.Capacity == nil && len(e.Stages) > 0 && c.Run.Duration > 0 && total != c.Run.Duration.D() {
 		add(errs.New(errs.CodeConfigStagesMismatch,
 			"the executor's stages last %s but the run is %s", total, c.Run.Duration).
 			WithPath(path + "/stages").

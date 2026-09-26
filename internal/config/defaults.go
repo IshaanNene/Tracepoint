@@ -24,6 +24,7 @@ const (
 // document has been accepted, so an error never describes a value the user did not
 // write.
 func (c *Config) ApplyDefaults() {
+	c.applyCapacityDefaults()
 	r := &c.Run
 	if r.Duration == 0 {
 		r.Duration = Duration(DefaultDuration)

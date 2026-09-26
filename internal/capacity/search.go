@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/IshaanNene/Tracepoint/internal/errs"
-	"github.com/IshaanNene/Tracepoint/internal/result"
 )
 
 // Phases of a search, as recorded against each level.
@@ -28,6 +27,15 @@ type Plan struct {
 	// bisection.
 	Linear  int
 	Confirm bool
+}
+
+// Boundary is where capacity ran out: the highest level that held and the lowest
+// that broke, zero for none. Range is set when it is unstable after confirmation.
+type Boundary struct {
+	LastOK      float64
+	FirstBroken float64
+	Stable      bool
+	Range       []float64
 }
 
 // Step is one level to run.
@@ -206,8 +214,8 @@ func (s *Search) confirm() {
 // Boundary is where capacity ran out. It is unstable when the search was aborted, or
 // when a confirmation run flipped - in which case the range is from the highest level
 // that held on every run to the lowest that broke on every run.
-func (s *Search) Boundary() *result.Boundary {
-	b := &result.Boundary{LastOK: s.lo, FirstBroken: s.hi, Stable: !s.aborted}
+func (s *Search) Boundary() Boundary {
+	b := Boundary{LastOK: s.lo, FirstBroken: s.hi, Stable: !s.aborted}
 	if s.confirms == 0 || s.aborted {
 		return b
 	}

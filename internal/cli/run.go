@@ -42,6 +42,14 @@ type runOptions struct {
 	seed         uint64
 	seedSet      bool
 	thresholds   map[string]float64
+
+	// source, when set, is the configuration itself rather than a path to read, and
+	// sourceLabel names it in messages. extraEnv supplies environment references
+	// the configuration makes to values given on the command line - a DSN - so they
+	// reach the run without ever being written into a file.
+	source      []byte
+	sourceLabel string
+	extraEnv    map[string]string
 }
 
 func newRunCmd(env Env, g *globals) *cobra.Command {
@@ -118,8 +126,17 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 	// The run logs through a handler the live view can take over for the length of
 	// the run and hand back.
 	logs := newSwitchHandler(g.logger(env).Handler())
+	lookup := env.Lookup
+	if len(opts.extraEnv) > 0 {
+		lookup = func(name string) (string, bool) {
+			if v, ok := opts.extraEnv[name]; ok {
+				return v, true
+			}
+			return env.Lookup(name)
+		}
+	}
 	req := session.Request{
-		Overrides: opts.overrides, Granted: granted, Lookup: env.Lookup,
+		Overrides: opts.overrides, Granted: granted, Lookup: lookup,
 		Thresholds: opts.thresholds, AllowInvalid: opts.allowInvalid, Actor: env.actor(),
 		Logger: slog.New(logs), Store: store, OutDir: opts.outDir, ResultPath: opts.resultPath, ReportPath: opts.reportPath,
 		Detached: opts.detach,
@@ -127,7 +144,9 @@ func runRun(ctx context.Context, env Env, g *globals, opts runOptions) error {
 	if opts.seedSet {
 		req.Seed = &opts.seed
 	}
-	if req.Source, req.SourcePath, err = readSource(env, store, opts.configPath, opts.from); err != nil {
+	if opts.source != nil {
+		req.Source, req.SourcePath = opts.source, opts.sourceLabel
+	} else if req.Source, req.SourcePath, err = readSource(env, store, opts.configPath, opts.from); err != nil {
 		return err
 	}
 

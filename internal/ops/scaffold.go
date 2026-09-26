@@ -30,9 +30,15 @@ func Scaffold(in ScaffoldIn) (string, []string, error) {
 	if duration == "" {
 		duration = "30s"
 	}
-	if _, err := time.ParseDuration(duration); err != nil {
-		return "", nil, errs.New(errs.CodeOpsInvalidInput, "duration %q is not a duration", duration).
+	d, err := time.ParseDuration(duration)
+	if err != nil || d <= 0 {
+		return "", nil, errs.New(errs.CodeOpsInvalidInput, "duration %q is not a positive duration", duration).
 			WithHint("use a Go duration such as 30s or 3m")
+	}
+	// Five seconds of warm-up, or a tenth of a run shorter than thirty.
+	warmup := 5 * time.Second
+	if d < 30*time.Second {
+		warmup = (d / 10).Truncate(100 * time.Millisecond)
 	}
 	paths := in.Paths
 	if len(paths) == 0 {
@@ -53,14 +59,14 @@ version: 1
 run:
   duration: %s     # how long load is offered
   bucket: 1s        # every tier is recorded into the same one-second buckets
-  warmup: 5s        # excluded from every summary and baseline
+  warmup: %s        # excluded from every summary and baseline
 slo:
   http: { p99: 250ms, error_rate: 0.01 }   # replace with the budgets that were agreed
 http:
   base_url: %q
   executor: { type: arrival-rate, rate: %s, max_in_flight: 64 }
   requests:
-`, duration, in.BaseURL, trimFloat(rate))
+`, duration, warmup, in.BaseURL, trimFloat(rate))
 	for i, p := range paths {
 		fmt.Fprintf(&b, "    - { name: %s, method: GET, url: %q }\n", requestName(p, i), p)
 	}
@@ -80,9 +86,11 @@ http:
   dsn: "${%s}"
   executor: { type: arrival-rate, rate: 30 }
   queries:
-    - { name: probe, type: read, sql: "SELECT 1" }   # replace with a query the application runs
-`, in.DBDriver, env)
-		notes = append(notes, "SELECT 1 only shows that the database answers; a query on a table the application uses shows whether that table is contended")
+    - { name: probe, type: read, sql: %q }%s
+`, in.DBDriver, env, probeSQL(in.DBQuery), probeComment(in.DBQuery))
+		if in.DBQuery == "" {
+			notes = append(notes, "SELECT 1 only shows that the database answers; a query on a table the application uses shows whether that table is contended")
+		}
 	default:
 		return "", nil, errs.New(errs.CodeOpsInvalidInput, "db_driver %q is not postgres, mysql or sqlite", in.DBDriver)
 	}
@@ -133,4 +141,18 @@ func requestName(path string, i int) string {
 
 func trimFloat(v float64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.3f", v), "0"), ".")
+}
+
+func probeSQL(q string) string {
+	if q == "" {
+		return "SELECT 1"
+	}
+	return q
+}
+
+func probeComment(q string) string {
+	if q == "" {
+		return "   # replace with a query the application runs"
+	}
+	return ""
 }

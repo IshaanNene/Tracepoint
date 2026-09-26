@@ -60,6 +60,7 @@ type ScaffoldIn struct {
 	RedisAddrEnv string   `json:"redis_addr_env,omitempty" jsonschema:"Name of the environment variable holding the Redis address, such as REDIS_ADDR. Omit for no Redis probe."`
 	Rate         float64  `json:"rate,omitempty" jsonschema:"Application requests per second. Defaults to 20; start low and raise it once a smoke run is valid."`
 	Duration     string   `json:"duration,omitempty" jsonschema:"Run length as a Go duration, such as 30s or 3m. Defaults to 30s."`
+	DBQuery      string   `json:"db_query,omitempty" jsonschema:"The database probe's query. Defaults to SELECT 1, which sees the connection but none of the application's tables; a read the application itself performs is a far better probe."`
 }
 
 // ScaffoldOut is a starter configuration.

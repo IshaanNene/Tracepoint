@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -768,5 +769,78 @@ capacity: { knob: rate, start: 50, max: 1600, step_duration: 2s, settle: 500ms, 
 	}
 	if c.USL == nil {
 		t.Fatal("no USL section")
+	}
+
+	// Every level is announced and concluded on the event stream, and the digest
+	// carries the answer.
+	var id string
+	entries, _ := os.ReadDir(runRoot(t))
+	for _, e := range entries {
+		if e.IsDir() {
+			id = e.Name()
+		}
+	}
+	f, err := os.Open(filepath.Join(runRoot(t), id, "events.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	schema := compileSchema(t, "events")
+	counts := map[string]int{}
+	for sc := bufio.NewScanner(f); sc.Scan(); {
+		ev := validateAgainst(t, schema, sc.Text(), "event")
+		counts[ev["type"].(string)]++
+	}
+	if counts["level.started"] != len(c.Levels) || counts["level.completed"] != len(c.Levels) {
+		t.Fatalf("events %v for %d levels", counts, len(c.Levels))
+	}
+	d := exec(t, "digest", id)
+	digest := validateAgainst(t, compileSchema(t, "digest"), d.stdout, "digest")
+	dc, _ := digest["capacity"].(map[string]any)
+	if dc == nil || dc["first_broken"] != b.FirstBroken || !strings.Contains(dc["summary"].(string), "breaks at") {
+		t.Fatalf("digest capacity = %v", dc)
+	}
+}
+
+// Under the closed model the knob is users, and a target that serves four at a time
+// plateaus there: more users buy no more throughput.
+func TestCapacitySearchByConcurrency(t *testing.T) {
+	sem := make(chan struct{}, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case sem <- struct{}{}:
+		case <-r.Context().Done():
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+		<-sem
+	}))
+	t.Cleanup(srv.Close)
+	cfg := writeConfig(t, fmt.Sprintf(`
+version: 1
+run: { bucket: 250ms, seed: 3, timeout: 2s, grace: 2s, min_samples: 5 }
+http:
+  base_url: %q
+  executor: { type: vus, vus: 1 }
+  requests: [{ name: items, url: /items }]
+capacity: { knob: concurrency, start: 1, max: 32, step_duration: 1500ms, settle: 250ms, cooldown: 250ms, confirm: false }
+`, srv.URL))
+	r := exec(t, "run", "-c", cfg, "--output", "json", "--log-level", "error")
+	if r.code != errs.ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	doc := validateAgainst(t, compileSchema(t, "result"), r.stdout, "result.json")
+	raw, _ := json.Marshal(doc["capacity"])
+	var c result.Capacity
+	if err := json.Unmarshal(raw, &c); err != nil || c.Knob != "concurrency" || c.Boundary == nil {
+		t.Fatalf("capacity = %s", raw)
+	}
+	if b := c.Boundary; b.LastOK < 3 || b.LastOK > 6 || b.FirstBroken > 8 {
+		t.Fatalf("boundary %+v for a target that serves four at a time; levels %s", b, raw)
+	}
+	for _, l := range c.Levels {
+		if !l.OK && !strings.Contains(l.BreakReason, "plateau") {
+			t.Fatalf("level %v broke for %q; only a plateau was possible", l.Value, l.BreakReason)
+		}
 	}
 }

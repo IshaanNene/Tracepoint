@@ -46,6 +46,7 @@ const (
 	CodeConfigDiffers = "COMPARE_CONFIG_DIFFERS"
 	CodeInvalidInput  = "COMPARE_INVALID_INPUT"
 	CodeRunnerMissing = "COMPARE_RUNNER_MISSING"
+	CodeTailOnly      = "COMPARE_TAIL_ONLY"
 )
 
 // Z is the normal quantile of the confidence intervals: 95%, two-sided.
@@ -263,6 +264,24 @@ func Compare(baseline, current *result.Result, opts Options) (*Report, error) {
 		}
 	}
 
+	// A p99 that moved while p50 and p95 did not is a change in the tail alone. It may
+	// be real - contention that hits a few percent of requests - but it is also what
+	// a paused host or a noisy neighbour looks like, which no interval can tell apart.
+	for _, gt := range rep.Gates {
+		if gt.Name != GateRelative || gt.Pass {
+			continue
+		}
+		for _, d := range rep.Runners {
+			if d.Runner == gt.Runner && !moved(d.Baseline.P95MS, d.Current.P95MS, g) && !moved(d.Baseline.P50MS, d.Current.P50MS, g) {
+				rep.Warnings = append(rep.Warnings, result.Finding{
+					Code: CodeTailOnly, Severity: result.SeverityInfo,
+					Message: fmt.Sprintf("only %s's tail moved: p99 rose while p50 and p95 stayed within the gate", d.Runner),
+					Fix:     "if nothing in the system changed, re-run both on a quiet host to rule out the environment before acting on it",
+				})
+			}
+		}
+	}
+
 	rep.Incidents = incidentDiff(baseline, current, g)
 	for _, gt := range rep.Gates {
 		if !gt.Pass {
@@ -271,6 +290,11 @@ func Compare(baseline, current *result.Result, opts Options) (*Report, error) {
 	}
 	rep.Summary = summarise(rep)
 	return rep, nil
+}
+
+// moved reports whether a latency changed by more than the relative gate allows.
+func moved(b, c float64, g Gates) bool {
+	return c-b > g.RelativeMS && b > 0 && 100*(c-b)/b > g.RelativePct
 }
 
 // ExitCode is what a CI job should exit with: 1 when a gate failed.

@@ -424,3 +424,30 @@ func TestAAFalseChangeRate(t *testing.T) {
 		t.Fatalf("%d of %d A/A pairs were called changed", changed, pairs)
 	}
 }
+
+// A regression in the tail alone is still a regression, with a note that the
+// environment can look the same.
+func TestTailOnlyRegressionIsNoted(t *testing.T) {
+	base := latencies(1, 6000, 0)
+	cur := latencies(2, 6000, 0)
+	for i := range 120 { // 2% of requests 200ms slower
+		cur[i*50] += 200
+	}
+	rep := mustCompare(t, run(t, "a", tier{name: "http", values: base}), run(t, "b", tier{name: "http", values: cur}), Options{})
+	if !rep.Regression {
+		t.Fatalf("summary = %s", rep.Summary)
+	}
+	found := false
+	for _, w := range rep.Warnings {
+		found = found || w.Code == CodeTailOnly
+	}
+	if !found {
+		t.Fatalf("warnings = %+v", rep.Warnings)
+	}
+	shifted := mustCompare(t, run(t, "a", tier{name: "http", values: base}), run(t, "b", tier{name: "http", values: latencies(2, 6000, 50)}), Options{})
+	for _, w := range shifted.Warnings {
+		if w.Code == CodeTailOnly {
+			t.Fatal("a shift of the whole distribution was called tail-only")
+		}
+	}
+}

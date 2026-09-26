@@ -17,6 +17,19 @@ before it is removed in the next major.
 
 ### Added
 
+- Phase 7: capacity and compare. A `capacity` section turns a run into an auto-ramp
+  search: levels double from `start` until one breaks an SLO or plateaus, the
+  boundary is refined by bisection or `linear:N` and confirmed by re-running both
+  sides (an unstable boundary is reported as a range), each broken level is
+  attributed to a tier, and a Universal Scalability Law fit is reported when it is
+  reliable. The search runs on warm runners on one timeline, with the probes holding
+  their own rate throughout; its levels are in the result, the digest, the plan and
+  every report, and on the event stream as `level.started` and `level.completed`.
+  `tracepoint compare` and `compare_runs` compare two runs with distribution-free
+  confidence intervals for p99, three configurable gates (budget crossing, relative
+  increase, error-rate increase) that exit 1 for CI, an incident diff and a
+  configuration diff, as a table, JSON (`compare.schema.json`), Markdown, JUnit or an
+  offline HTML page with the two runs' timelines overlaid.
 - Phase 6: journeys and onboarding. Multi-step HTTP journeys with `extract` (gjson
   paths), `expect` (status sets, JSON-path equals and exists, body size), per-step
   timeouts, think time, cookie jars and CSV feeders, checked at load time so that no
@@ -77,6 +90,8 @@ before it is removed in the next major.
 
 ### Fixed
 
+- `Snapshot` read the whole-run sketches without their lock; harmless while only the
+  sweeper sealed buckets, a race once a capacity search seals them too.
 - `executor.type: vus` ran the open model at the user count as a rate.
 - `http.traceparent: true` was accepted and ignored.
 - A generator paused by its host (a virtualised machine's steal time) no longer
@@ -90,6 +105,9 @@ before it is removed in the next major.
 
 ### Changed
 
+- Result schema 1.2: capacity levels record the buckets of their measured window.
+  Digest schema 1.2: `capacity`. Both additive.
+- A capacity search is not judged against its SLOs as a whole; each level is.
 - Digest schema 1.1: `strain.next_window` and `caveats`.
 - `scaffold_config` no longer requires `base_url` when `detect_dir` supplies one.
 - Result schema 1.1: `executor.start_target` records where a load profile starts.

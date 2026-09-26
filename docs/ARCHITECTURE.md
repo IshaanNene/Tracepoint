@@ -94,8 +94,8 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `internal/metrics` | Outcome model, error taxonomy, sketches, sharded recorders, bucket sealing (ADR-002) |
 | `internal/telemetry` | The sampler registry and loop; samplers for the generator, Postgres, MySQL and Redis. Each runs on its own goroutine and connection so a stalled datastore stalls only its own sampler |
 | `internal/analysis` | Hot buckets, incidents, culprits, lagged correlation, verdicts, validity, SLOs, strain (ADR-005). Pure functions of `result.json`; the rules and constants are in [`METHODOLOGY.md`](METHODOLOGY.md) |
-| `internal/capacity` | Auto-ramp search, boundary confirmation, USL fit |
-| `internal/compare` | Quantile confidence intervals, gates, incident diff |
+| `internal/capacity` | The auto-ramp search's pure parts: level choice (doubling, bisection or linear fill, confirmation), the break rules, the knee and the USL fit. Depends on nothing but `errs`, so `config` can plan with it; `internal/engine/capacity.go` drives the levels (ADR-011) |
+| `internal/compare` | Quantile confidence intervals from result sketches, the gates, the incident and configuration diffs; the comparison document (`compare.schema.json`). Rendered by `render/{cli,markdown,junit,html}` and dispatched by `render/report` |
 | `internal/result` | The result model, schema versions, migrations, the digest builder and its recommendations (ADR-004). `resulttest` builds synthetic runs for tests |
 | `internal/runstore` | Run directories, atomic `state.json`, the stop sentinel, heartbeats, lost detection, `wait`, GC, the audit log, and the lock that makes the concurrent-run limit atomic |
 | `internal/events` | The NDJSON event emitter: sequence numbers, the shared clock, fan-out to files, stdout and callbacks |

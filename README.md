@@ -39,8 +39,8 @@ input and output.
 
 ## Status
 
-**Phase 6 of 8 complete: the engine, the analysis, both the agent and the human
-interfaces, journeys and onboarding work.** TracePoint runs HTTP, SQL (Postgres, MySQL, SQLite) and Redis load
+**Phase 7 of 8 complete: the engine, the analysis, both the agent and the human
+interfaces, journeys, onboarding, capacity search and compare work.** TracePoint runs HTTP, SQL (Postgres, MySQL, SQLite) and Redis load
 on one clock, samples the datastores' own telemetry, and reports incidents, a verdict
 with evidence and confidence, and a context-sized digest for agents. A known-answer
 suite injects faults into a demo application and checks that every verdict class comes
@@ -48,8 +48,9 @@ out right. Agents drive it over MCP, REST or the shell; people get a live termin
 view and an offline HTML report for every run, with Markdown and JUnit one command
 away. Multi-step journeys run under an open or a closed load model, ramping runs say
 where strain begins, and `quick`, `init --detect` and `init --from-openapi` get a
-project to its first run. Capacity search and `compare` are the phases still to come,
-and there is no release yet.
+project to its first run. A capacity search finds where the SLOs stop holding and
+which tier breaks first, and `compare` gates a change in CI without calling noise a
+regression. Packaging, the Go facade and the release are the phase still to come.
 
 | What exists | Where |
 | --- | --- |
@@ -57,7 +58,7 @@ and there is no release yet.
 | What is built, and what deviates | [`docs/PROGRESS.md`](docs/PROGRESS.md) |
 | How a verdict is reached, with every constant | [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) |
 | Architecture and the package map | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| Ten architecture decision records | [`docs/adr/`](docs/adr/) |
+| Eleven architecture decision records | [`docs/adr/`](docs/adr/) |
 | JSON Schemas: config, policy, result, digest, events, error | [`internal/schemas/`](internal/schemas/) |
 | Error and finding codes | [`docs/ERRORS.md`](docs/ERRORS.md) |
 

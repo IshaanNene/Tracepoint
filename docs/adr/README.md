@@ -19,3 +19,4 @@ Where `docs/SPEC.md` is silent, the decision and its reasoning live here.
 | [008](008-agent-interface.md) | JSON contract, digest, run store and the one operation registry | Accepted |
 | [009](009-public-go-api.md) | The public Go API and its stability policy | Accepted |
 | [010](010-name.md) | The tool is named `tracepoint` | Accepted |
+| [011](011-capacity-and-compare.md) | How a capacity search runs, and what compare gates | Accepted |

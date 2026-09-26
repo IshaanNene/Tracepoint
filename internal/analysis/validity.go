@@ -18,6 +18,7 @@ const (
 	CodeRunAborted           = "RUN_ABORTED"
 	CodeTelemetryUnavailable = "TELEMETRY_UNAVAILABLE"
 	CodeLittlesLaw           = "LITTLES_LAW_INCONSISTENT"
+	CodeGeneratorStall       = "GENERATOR_STALL"
 )
 
 // evaluateValidity decides whether the run describes the target or describes us.
@@ -27,6 +28,9 @@ const (
 // about the target and must not be interpreted.
 func evaluateValidity(r *result.Result, in Inputs) result.Validity {
 	v := result.Validity{State: result.ValidityValid}
+	if stalls := generatorStalls(r.Runners, thresholds(runnerNames(r), in), in.params()); len(stalls) > 0 {
+		v.Findings = append(v.Findings, stallFinding(stalls))
+	}
 	// A generator is "behind" once its dispatch lag is a material fraction of a bucket,
 	// floored at 5ms so a very short bucket does not make the rule hair-trigger.
 	limit := msOf(5 * time.Millisecond)
@@ -289,4 +293,12 @@ func dedupeFindings(in []result.Finding) []result.Finding {
 		out = append(out, f)
 	}
 	return out
+}
+
+func runnerNames(r *result.Result) []string {
+	names := make([]string, 0, len(r.Runners))
+	for i := range r.Runners {
+		names = append(names, r.Runners[i].Name)
+	}
+	return names
 }

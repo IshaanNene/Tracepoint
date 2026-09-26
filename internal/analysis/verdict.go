@@ -11,7 +11,7 @@ import (
 
 // candidate is one possible answer and the incidents that support it.
 type candidate struct {
-	key       string // a runner name, "app", "client", "unobserved" or "tie"
+	key       string // a runner name, "app", "client", "unobserved", "tie" or "follower"
 	incidents []result.Incident
 	buckets   int
 	tied      []string
@@ -27,7 +27,7 @@ func priority(key string) int {
 		return 1
 	case "client":
 		return 2
-	case "tie":
+	case "tie", "follower":
 		return 3
 	case "unobserved":
 		return 4
@@ -131,7 +131,9 @@ func tally(incidents []result.Incident) (impacting, masked *candidate) {
 		case result.IncidentCorrelated:
 			switch {
 			case inc.Culprit == nil:
-				key = "tie"
+				// rankCulprit names none only when every hot storage tier followed
+				// the application.
+				key = "follower"
 			case len(inc.Culprit.TiedWith) > 0:
 				key = "tie"
 				tied = append([]string{inc.Culprit.Runner}, inc.Culprit.TiedWith...)
@@ -223,6 +225,15 @@ func verdictFor(c candidate, a result.Analysis, views []*view, r *result.Result,
 		v.NextSteps = []string{
 			"raise max_in_flight to what Little's Law needs (rate x p99 service time), or lower the rate",
 			"check the connection pool sizes against the worker count",
+		}
+	case "follower":
+		v.Bottleneck = result.BottleneckInconclusive
+		v.Summary = fmt.Sprintf(
+			"The application slowed in %s covering %s. A storage probe also went hot, but it went hot only after the application and not past its own threshold, so the evidence does not point to it - nor clearly away from every tier.",
+			plural(n, "incident"), seconds(secs))
+		v.NextSteps = []string{
+			"profile the application during the incident windows: it moved first",
+			"enable telemetry for the storage tiers so a server-side signal can confirm or clear them",
 		}
 	case "unobserved":
 		v.Bottleneck = result.BottleneckInconclusive
@@ -356,7 +367,7 @@ func quietVerdict(a result.Analysis, app *view) result.Verdict {
 // (server-side telemetry, or healthy probes for an application verdict). Three is
 // high, two is medium, fewer is low. Answers that decline to attribute are always low.
 func confidence(c candidate, a result.Analysis, views []*view, r *result.Result, p Params) string {
-	if c.key == "unobserved" || c.key == "tie" {
+	if c.key == "unobserved" || c.key == "tie" || c.key == "follower" {
 		return result.ConfidenceLow
 	}
 	involved := []*view{}

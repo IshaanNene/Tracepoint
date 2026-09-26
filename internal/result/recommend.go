@@ -135,6 +135,9 @@ func Recommend(r *Result) []Recommendation {
 		case "SAME_HOST_TARGET":
 			add(Recommendation{ID: "separate-generator-host", Action: ActionConfigure,
 				Why: "generator and target shared one machine; run the generator elsewhere before quoting a capacity number"})
+		case "GENERATOR_STALL":
+			add(Recommendation{ID: "dedicated-generator-host", Action: ActionConfigure,
+				Why: "the generator was paused by its host; run it where it has dedicated CPU"})
 		case "RATE_LIMITED":
 			add(Recommendation{ID: "exempt-rate-limiter", Action: ActionConfigure, Why: f.Message})
 		}

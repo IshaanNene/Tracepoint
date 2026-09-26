@@ -46,6 +46,17 @@ type Params struct {
 	StrongRho float64
 	// TieEpsilon is how close two culprit scores must be to be reported as a tie.
 	TieEpsilon float64
+	// StallRatio and StallAbsMS are how far every runner's client wait must jump
+	// above its own median, together, for a bucket to count as a generator stall;
+	// StallMinRunners is how many runners it takes to tell a stall from a queue, and
+	// StallMaxBuckets the longest run of buckets a pause can span.
+	StallRatio      float64
+	StallAbsMS      float64
+	StallMinRunners int
+	StallMaxBuckets int
+	// StallServiceFactor is how many times the pause a tier's service-time rise must
+	// exceed, over its threshold, to be the target moving rather than the pause.
+	StallServiceFactor float64
 }
 
 // DefaultParams are the values the specification fixes (§5.5).
@@ -66,6 +77,11 @@ func DefaultParams() Params {
 		LeanRho:            0.3,
 		StrongRho:          0.7,
 		TieEpsilon:         0.25,
+		StallRatio:         3,
+		StallAbsMS:         5,
+		StallMinRunners:    2,
+		StallMaxBuckets:    2,
+		StallServiceFactor: 10,
 	}
 }
 

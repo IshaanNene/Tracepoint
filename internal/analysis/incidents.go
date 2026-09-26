@@ -318,6 +318,12 @@ func rankCulprit(appFirst int, hot []*view, first map[string]int, signals []resu
 		return all[i].name < all[j].name
 	})
 	best := all[0]
+	// A negative best score means every hot tier went hot only after the application
+	// and none was corroborated or severe enough to outweigh that: the evidence points
+	// away from them. Naming one would turn a follower into an accusation.
+	if best.score < 0 {
+		return nil
+	}
 	c := &result.Culprit{Runner: best.name, Score: best.score, LeadBuckets: best.lead, Reasons: best.reasons}
 	for _, o := range all[1:] {
 		if best.score-o.score < p.TieEpsilon {

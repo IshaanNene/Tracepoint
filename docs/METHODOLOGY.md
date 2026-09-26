@@ -71,6 +71,26 @@ The MAD is floored at 1% of the median — the sketches' relative accuracy, belo
 which differences are measurement noise — so a perfectly flat baseline cannot turn a
 flicker into an infinite z-score.
 
+### Generator stalls
+
+A bucket is a **generator stall** when all of these hold:
+
+| Condition | Value | Why |
+| --- | --- | --- |
+| Every runner with eligible data there saw its client-wait p99 jump | ≥ 3× its own run median and ≥ 5ms above it | A pause delays every runner's sends at once; a runner short of workers delays only its own |
+| At least this many runners have data there | 2 | With one runner a pause and a queue look the same |
+| No tier's service time is over its threshold by more than the pause explains | a service-time rise over 10× the bucket's largest client-wait rise is the target moving | A pause that lands mid-request adds about its own length to service time; a real fault adds far more. On the known-answer host a Postgres lock raised db service time ~200× more than it raised client wait |
+| The run of such buckets is short | ≤ 2 consecutive buckets | A pause lasts milliseconds and can straddle one boundary; a real storage stall also slows the generator — blocked workers pile up — but it lasts |
+
+That is the generator's whole process being paused — by a virtualised host taking
+the CPU back, for example.
+
+A stalled bucket is neither hot nor part of any baseline, exactly like an ineligible
+one, and the run carries a `GENERATOR_STALL` warning listing the buckets. With a
+single runner there is nothing to compare against, so no bucket is ever called a
+stall. (Added after phase 5, when a microVM's steal time produced one-bucket pauses
+that the relative rule faithfully flagged as incidents on clean runs.)
+
 ## Incidents
 
 1. Each runner's hot buckets are merged into **episodes**, bridging gaps of at most
@@ -108,11 +128,17 @@ times over its threshold does not drown out one that moved first; corroboration 
 only signal that is not latency. Scores within 0.25 of the best are a **tie**, and a
 tie is reported: the incident lists `tied_with`, and the digest's culprit is `null`.
 
+A **negative** best score names no culprit. It can only arise when every hot storage
+tier went hot after the application, uncorroborated and not severe enough to make
+up for it — the evidence points away from them. The incident stays `correlated`
+with `culprit: null`, and the verdict is `inconclusive`, saying the storage tier
+followed the application.
+
 ### Incident confidence
 
 | Class | High | Medium | Low |
 | --- | --- | --- | --- |
-| correlated | untied culprit with corroborating telemetry | untied culprit | a tie |
+| correlated | untied culprit with corroborating telemetry | untied culprit | a tie, or no culprit |
 | storage_only | corroborated | otherwise | — |
 | app_only, client_limited | — | always | — |
 | unobserved | — | — | always |
@@ -213,6 +239,7 @@ Read before anything else.
 | `RATE_LIMITED` | warn | > 5% of responses were 429 |
 | `INSECURE_TLS` | warn | certificate verification disabled |
 | `TELEMETRY_UNAVAILABLE` | warn | a configured sampler delivered nothing |
+| `GENERATOR_STALL` | warn | in some bucket every runner's client wait jumped together (≥ 3× its median and ≥ 5ms above it) |
 | `LITTLES_LAW_INCONSISTENT` | warn | see below |
 | `RUN_ABORTED` | warn | the abort guard stopped the run |
 
@@ -249,7 +276,7 @@ cleanly — a staged profile has no single rate to override, so rate advice ther
 | `investigate-db`, `investigate-redis`, `profile-app` | that verdict | investigate the incident windows |
 | `configure-slo` | verdict none with no budgets | configure |
 | `raise-load` | verdict none | rerun at twice the rate |
-| `separate-generator-host`, `exempt-rate-limiter` | `SAME_HOST_TARGET`, `RATE_LIMITED` | configure |
+| `separate-generator-host`, `dedicated-generator-host`, `exempt-rate-limiter` | `SAME_HOST_TARGET`, `GENERATOR_STALL`, `RATE_LIMITED` | configure |
 
 ## The known-answer suite
 

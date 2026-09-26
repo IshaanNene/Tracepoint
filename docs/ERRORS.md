@@ -138,6 +138,7 @@ Findings are not failures: they appear in `analysis.validity.findings`, in
 | `CLIENT_CAPPED` | error | Dropped arrivals above 1% while service time stayed flat — a client-side ceiling, not a target limit. Raise `max_in_flight`; the digest computes the Little's Law figure |
 | `TARGET_SATURATED` | warn | Dropped arrivals **with rising** service time. This one is a real finding about the target: it could not keep up |
 | `SAME_HOST_TARGET` | warn | The target resolved to loopback, so generator and target shared a machine's CPU. Results are indicative, not a capacity number |
+| `GENERATOR_STALL` | warn | In the listed buckets every runner's requests left late at once: the generator's process was paused, typically by a virtualised host. Those buckets are left out of the analysis. Run the generator on a host with dedicated CPU |
 | `RATE_LIMITED` | warn | Over 5% of responses were 429: you are measuring the rate limiter, not the service |
 | `INSECURE_TLS` | warn | Certificate verification was disabled. Printed in every report |
 | `TELEMETRY_UNAVAILABLE` | warn | A sampler could not run. The reason names the grant that would fix it — for example `GRANT pg_read_all_stats` |

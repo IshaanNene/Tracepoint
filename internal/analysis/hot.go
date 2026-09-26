@@ -46,13 +46,19 @@ func eligible(b *result.Bucket) bool {
 // only when the modified z-score, the ratio and the absolute difference all clear
 // their bars.
 func hotBuckets(buckets []result.Bucket, thresholdMS float64, p Params) []result.HotBucket {
+	return hotBucketsExcept(buckets, thresholdMS, p, nil)
+}
+
+// hotBucketsExcept is hotBuckets with some buckets set aside: a generator stall
+// (stall.go) is neither hot nor part of the steady baseline.
+func hotBucketsExcept(buckets []result.Bucket, thresholdMS float64, p Params, skip map[int]bool) []result.HotBucket {
 	var (
 		out    []result.HotBucket
 		steady []float64 // service p99 of recent steady buckets, oldest first
 	)
 	for i := range buckets {
 		b := &buckets[i]
-		if !eligible(b) {
+		if !eligible(b) || skip[b.Index] {
 			continue
 		}
 		x := b.Service.P99

@@ -30,11 +30,16 @@ func Analyse(r *result.Result, in Inputs) result.Analysis {
 		Thresholds: thresholds(names, in),
 	}
 
+	stalled := map[int]bool{}
+	for _, i := range generatorStalls(r.Runners, a.Thresholds, p) {
+		stalled[i] = true
+	}
+
 	views := make([]*view, 0, len(r.Runners))
 	for i := range r.Runners {
 		rn := &r.Runners[i]
 		th := a.Thresholds[rn.Name].ThresholdMS
-		hot := hotBuckets(rn.Buckets, th, p)
+		hot := hotBucketsExcept(rn.Buckets, th, p, stalled)
 		if len(hot) > 0 {
 			if a.HotBuckets == nil {
 				a.HotBuckets = map[string][]result.HotBucket{}

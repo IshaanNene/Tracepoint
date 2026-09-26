@@ -5,6 +5,662 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "Compare two runs"
+    },
+    "description": "Compare a finished run against a baseline: p50, p95 and p99, error rate and throughput per runner and label, with distribution-free 95% confidence intervals for p99, so a change is reported only when the intervals do not overlap - sampling noise is never called a regression. Gates fail on a p99 crossing its budget, a significant p99 rise over relative_pct and relative_ms, or an error-rate rise over error_pp; regression is true when any failed. Incidents are paired across the runs as new, fixed, worsened, improved or unchanged. Compare runs of the same configuration, both valid: the comparison warns when they are not.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_run_id": {
+          "description": "The run to compare against: usually the last known-good run of the same configuration.",
+          "type": "string"
+        },
+        "budgets_ms": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "p99 budgets in milliseconds by runner, for the budget-crossing gate. Default: the runs' own SLOs.",
+          "type": "object"
+        },
+        "current_run_id": {
+          "description": "The run being judged.",
+          "type": "string"
+        },
+        "error_pp": {
+          "description": "The error-rate gate, in percentage points. Default 0.5.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "format": {
+          "description": "json (default): the comparison document alone. markdown: also a summary sized for a pull-request comment, in content. junit: also JUnit XML, in content. html: also the offline comparison page, written to the current run's directory; only its path is returned.",
+          "enum": [
+            "json",
+            "markdown",
+            "junit",
+            "html"
+          ],
+          "type": "string"
+        },
+        "relative_ms": {
+          "description": "The relative gate's absolute floor in milliseconds. Default 5.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "relative_pct": {
+          "description": "The relative gate: a p99 rise counts as a regression only above this percentage (and relative_ms), and only when significant. Default 10.",
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "baseline_run_id",
+        "current_run_id"
+      ],
+      "type": "object"
+    },
+    "name": "compare_runs",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "comparison": {
+          "additionalProperties": false,
+          "description": "The comparison. Read summary, then gates; regression is true when any gate failed. The same document tracepoint compare --output json prints.",
+          "properties": {
+            "baseline": {
+              "additionalProperties": false,
+              "properties": {
+                "duration_s": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "schema_version": {
+                  "type": "string"
+                },
+                "started_at": {
+                  "type": "string"
+                },
+                "validity": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "schema_version",
+                "validity",
+                "duration_s"
+              ],
+              "type": "object"
+            },
+            "config_diff": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "current": {
+              "additionalProperties": false,
+              "properties": {
+                "duration_s": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "schema_version": {
+                  "type": "string"
+                },
+                "started_at": {
+                  "type": "string"
+                },
+                "validity": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "schema_version",
+                "validity",
+                "duration_s"
+              ],
+              "type": "object"
+            },
+            "gate_settings": {
+              "additionalProperties": false,
+              "properties": {
+                "budgets_ms": {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "error_pp": {
+                  "type": "number"
+                },
+                "relative_ms": {
+                  "type": "number"
+                },
+                "relative_pct": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "relative_pct",
+                "relative_ms",
+                "error_pp"
+              ],
+              "type": "object"
+            },
+            "gates": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseline": {
+                    "type": "number"
+                  },
+                  "current": {
+                    "type": "number"
+                  },
+                  "gate": {
+                    "type": "string"
+                  },
+                  "insufficient": {
+                    "type": "boolean"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "pass": {
+                    "type": "boolean"
+                  },
+                  "runner": {
+                    "type": "string"
+                  },
+                  "threshold": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "gate",
+                  "runner",
+                  "pass",
+                  "threshold",
+                  "baseline",
+                  "current",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "incidents": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseline": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "class": {
+                        "type": "string"
+                      },
+                      "end_s": {
+                        "type": "number"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "peak_p99_ms": {
+                        "type": "number"
+                      },
+                      "start_s": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "class",
+                      "start_s",
+                      "end_s",
+                      "peak_p99_ms"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "current": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "class": {
+                        "type": "string"
+                      },
+                      "end_s": {
+                        "type": "number"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "peak_p99_ms": {
+                        "type": "number"
+                      },
+                      "start_s": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "class",
+                      "start_s",
+                      "end_s",
+                      "peak_p99_ms"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "runner": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "runner",
+                  "status",
+                  "baseline",
+                  "current"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "labels": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseline": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "achieved_rps": {
+                        "type": "number"
+                      },
+                      "error_ratio": {
+                        "type": "number"
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "p50_ms": {
+                        "type": "number"
+                      },
+                      "p95_ms": {
+                        "type": "number"
+                      },
+                      "p99_ms": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "n",
+                      "p50_ms",
+                      "p95_ms",
+                      "p99_ms",
+                      "error_ratio",
+                      "achieved_rps"
+                    ],
+                    "type": "object"
+                  },
+                  "change": {
+                    "type": "string"
+                  },
+                  "current": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "achieved_rps": {
+                        "type": "number"
+                      },
+                      "error_ratio": {
+                        "type": "number"
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "p50_ms": {
+                        "type": "number"
+                      },
+                      "p95_ms": {
+                        "type": "number"
+                      },
+                      "p99_ms": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "n",
+                      "p50_ms",
+                      "p95_ms",
+                      "p99_ms",
+                      "error_ratio",
+                      "achieved_rps"
+                    ],
+                    "type": "object"
+                  },
+                  "error_delta_pp": {
+                    "type": "number"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "p50_delta_ms": {
+                    "type": "number"
+                  },
+                  "p95_delta_ms": {
+                    "type": "number"
+                  },
+                  "p99_ci": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "baseline": {
+                        "items": {
+                          "type": "number"
+                        },
+                        "type": [
+                          "null",
+                          "array"
+                        ]
+                      },
+                      "current": {
+                        "items": {
+                          "type": "number"
+                        },
+                        "type": [
+                          "null",
+                          "array"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "baseline",
+                      "current"
+                    ],
+                    "type": "object"
+                  },
+                  "p99_delta_ms": {
+                    "type": "number"
+                  },
+                  "p99_delta_pct": {
+                    "type": "number"
+                  },
+                  "rps_delta_pct": {
+                    "type": "number"
+                  },
+                  "runner": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "runner",
+                  "baseline",
+                  "current",
+                  "p50_delta_ms",
+                  "p95_delta_ms",
+                  "p99_delta_ms",
+                  "p99_delta_pct",
+                  "error_delta_pp",
+                  "rps_delta_pct",
+                  "p99_ci",
+                  "change"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "regression": {
+              "type": "boolean"
+            },
+            "runners": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseline": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "achieved_rps": {
+                        "type": "number"
+                      },
+                      "error_ratio": {
+                        "type": "number"
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "p50_ms": {
+                        "type": "number"
+                      },
+                      "p95_ms": {
+                        "type": "number"
+                      },
+                      "p99_ms": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "n",
+                      "p50_ms",
+                      "p95_ms",
+                      "p99_ms",
+                      "error_ratio",
+                      "achieved_rps"
+                    ],
+                    "type": "object"
+                  },
+                  "change": {
+                    "type": "string"
+                  },
+                  "current": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "achieved_rps": {
+                        "type": "number"
+                      },
+                      "error_ratio": {
+                        "type": "number"
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "p50_ms": {
+                        "type": "number"
+                      },
+                      "p95_ms": {
+                        "type": "number"
+                      },
+                      "p99_ms": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "n",
+                      "p50_ms",
+                      "p95_ms",
+                      "p99_ms",
+                      "error_ratio",
+                      "achieved_rps"
+                    ],
+                    "type": "object"
+                  },
+                  "error_delta_pp": {
+                    "type": "number"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "p50_delta_ms": {
+                    "type": "number"
+                  },
+                  "p95_delta_ms": {
+                    "type": "number"
+                  },
+                  "p99_ci": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "baseline": {
+                        "items": {
+                          "type": "number"
+                        },
+                        "type": [
+                          "null",
+                          "array"
+                        ]
+                      },
+                      "current": {
+                        "items": {
+                          "type": "number"
+                        },
+                        "type": [
+                          "null",
+                          "array"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "baseline",
+                      "current"
+                    ],
+                    "type": "object"
+                  },
+                  "p99_delta_ms": {
+                    "type": "number"
+                  },
+                  "p99_delta_pct": {
+                    "type": "number"
+                  },
+                  "rps_delta_pct": {
+                    "type": "number"
+                  },
+                  "runner": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "runner",
+                  "baseline",
+                  "current",
+                  "p50_delta_ms",
+                  "p95_delta_ms",
+                  "p99_delta_ms",
+                  "p99_delta_pct",
+                  "error_delta_pp",
+                  "rps_delta_pct",
+                  "p99_ci",
+                  "change"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "detail": true,
+                  "fix": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "severity",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            }
+          },
+          "required": [
+            "schema_version",
+            "baseline",
+            "current",
+            "regression",
+            "summary",
+            "gates",
+            "runners",
+            "gate_settings"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "content": {
+          "description": "The rendered markdown or junit, when asked for.",
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Where the html page or rendered format was written, in the current run's directory.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "comparison",
+        "format"
+      ],
+      "type": "object"
+    },
+    "title": "Compare two runs"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "Get the safety policy"
     },
     "description": "Return the safety policy this server enforces: which targets may be loaded, whether writes and destructive statements are allowed, rate, concurrency and duration ceilings, and how many runs may be active at once. Call it before writing a configuration so the configuration fits, and when a call is refused with a POLICY_* code. The policy was fixed by a human when the server started; no call can change or exceed it - report a refusal to the human rather than working around it.",

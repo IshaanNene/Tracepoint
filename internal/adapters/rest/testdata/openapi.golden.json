@@ -168,6 +168,689 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/ops/compare_runs": {
+      "post": {
+        "description": "Compare a finished run against a baseline: p50, p95 and p99, error rate and throughput per runner and label, with distribution-free 95% confidence intervals for p99, so a change is reported only when the intervals do not overlap - sampling noise is never called a regression. Gates fail on a p99 crossing its budget, a significant p99 rise over relative_pct and relative_ms, or an error-rate rise over error_pp; regression is true when any failed. Incidents are paired across the runs as new, fixed, worsened, improved or unchanged. Compare runs of the same configuration, both valid: the comparison warns when they are not.",
+        "operationId": "compare_runs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "baseline_run_id": {
+                    "type": "string",
+                    "description": "The run to compare against: usually the last known-good run of the same configuration."
+                  },
+                  "current_run_id": {
+                    "type": "string",
+                    "description": "The run being judged."
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "json (default): the comparison document alone. markdown: also a summary sized for a pull-request comment, in content. junit: also JUnit XML, in content. html: also the offline comparison page, written to the current run's directory; only its path is returned.",
+                    "enum": [
+                      "json",
+                      "markdown",
+                      "junit",
+                      "html"
+                    ]
+                  },
+                  "relative_pct": {
+                    "type": "number",
+                    "description": "The relative gate: a p99 rise counts as a regression only above this percentage (and relative_ms), and only when significant. Default 10.",
+                    "minimum": 0
+                  },
+                  "relative_ms": {
+                    "type": "number",
+                    "description": "The relative gate's absolute floor in milliseconds. Default 5.",
+                    "minimum": 0
+                  },
+                  "error_pp": {
+                    "type": "number",
+                    "description": "The error-rate gate, in percentage points. Default 0.5.",
+                    "minimum": 0
+                  },
+                  "budgets_ms": {
+                    "type": "object",
+                    "description": "p99 budgets in milliseconds by runner, for the budget-crossing gate. Default: the runs' own SLOs.",
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "required": [
+                  "baseline_run_id",
+                  "current_run_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "comparison": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "type": "string"
+                        },
+                        "baseline": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "started_at": {
+                              "type": "string"
+                            },
+                            "schema_version": {
+                              "type": "string"
+                            },
+                            "validity": {
+                              "type": "string"
+                            },
+                            "duration_s": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "schema_version",
+                            "validity",
+                            "duration_s"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "current": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "started_at": {
+                              "type": "string"
+                            },
+                            "schema_version": {
+                              "type": "string"
+                            },
+                            "validity": {
+                              "type": "string"
+                            },
+                            "duration_s": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "schema_version",
+                            "validity",
+                            "duration_s"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "regression": {
+                          "type": "boolean"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "gates": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "gate": {
+                                "type": "string"
+                              },
+                              "runner": {
+                                "type": "string"
+                              },
+                              "pass": {
+                                "type": "boolean"
+                              },
+                              "insufficient": {
+                                "type": "boolean"
+                              },
+                              "threshold": {
+                                "type": "number"
+                              },
+                              "baseline": {
+                                "type": "number"
+                              },
+                              "current": {
+                                "type": "number"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "gate",
+                              "runner",
+                              "pass",
+                              "threshold",
+                              "baseline",
+                              "current",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "runners": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "runner": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "baseline": {
+                                "type": "object",
+                                "properties": {
+                                  "n": {
+                                    "type": "integer"
+                                  },
+                                  "p50_ms": {
+                                    "type": "number"
+                                  },
+                                  "p95_ms": {
+                                    "type": "number"
+                                  },
+                                  "p99_ms": {
+                                    "type": "number"
+                                  },
+                                  "error_ratio": {
+                                    "type": "number"
+                                  },
+                                  "achieved_rps": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "n",
+                                  "p50_ms",
+                                  "p95_ms",
+                                  "p99_ms",
+                                  "error_ratio",
+                                  "achieved_rps"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "current": {
+                                "type": "object",
+                                "properties": {
+                                  "n": {
+                                    "type": "integer"
+                                  },
+                                  "p50_ms": {
+                                    "type": "number"
+                                  },
+                                  "p95_ms": {
+                                    "type": "number"
+                                  },
+                                  "p99_ms": {
+                                    "type": "number"
+                                  },
+                                  "error_ratio": {
+                                    "type": "number"
+                                  },
+                                  "achieved_rps": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "n",
+                                  "p50_ms",
+                                  "p95_ms",
+                                  "p99_ms",
+                                  "error_ratio",
+                                  "achieved_rps"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "p50_delta_ms": {
+                                "type": "number"
+                              },
+                              "p95_delta_ms": {
+                                "type": "number"
+                              },
+                              "p99_delta_ms": {
+                                "type": "number"
+                              },
+                              "p99_delta_pct": {
+                                "type": "number"
+                              },
+                              "error_delta_pp": {
+                                "type": "number"
+                              },
+                              "rps_delta_pct": {
+                                "type": "number"
+                              },
+                              "p99_ci": {
+                                "type": "object",
+                                "properties": {
+                                  "baseline": {
+                                    "type": [
+                                      "null",
+                                      "array"
+                                    ],
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "current": {
+                                    "type": [
+                                      "null",
+                                      "array"
+                                    ],
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "baseline",
+                                  "current"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "change": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "runner",
+                              "baseline",
+                              "current",
+                              "p50_delta_ms",
+                              "p95_delta_ms",
+                              "p99_delta_ms",
+                              "p99_delta_pct",
+                              "error_delta_pp",
+                              "rps_delta_pct",
+                              "p99_ci",
+                              "change"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "labels": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "runner": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "baseline": {
+                                "type": "object",
+                                "properties": {
+                                  "n": {
+                                    "type": "integer"
+                                  },
+                                  "p50_ms": {
+                                    "type": "number"
+                                  },
+                                  "p95_ms": {
+                                    "type": "number"
+                                  },
+                                  "p99_ms": {
+                                    "type": "number"
+                                  },
+                                  "error_ratio": {
+                                    "type": "number"
+                                  },
+                                  "achieved_rps": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "n",
+                                  "p50_ms",
+                                  "p95_ms",
+                                  "p99_ms",
+                                  "error_ratio",
+                                  "achieved_rps"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "current": {
+                                "type": "object",
+                                "properties": {
+                                  "n": {
+                                    "type": "integer"
+                                  },
+                                  "p50_ms": {
+                                    "type": "number"
+                                  },
+                                  "p95_ms": {
+                                    "type": "number"
+                                  },
+                                  "p99_ms": {
+                                    "type": "number"
+                                  },
+                                  "error_ratio": {
+                                    "type": "number"
+                                  },
+                                  "achieved_rps": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "n",
+                                  "p50_ms",
+                                  "p95_ms",
+                                  "p99_ms",
+                                  "error_ratio",
+                                  "achieved_rps"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "p50_delta_ms": {
+                                "type": "number"
+                              },
+                              "p95_delta_ms": {
+                                "type": "number"
+                              },
+                              "p99_delta_ms": {
+                                "type": "number"
+                              },
+                              "p99_delta_pct": {
+                                "type": "number"
+                              },
+                              "error_delta_pp": {
+                                "type": "number"
+                              },
+                              "rps_delta_pct": {
+                                "type": "number"
+                              },
+                              "p99_ci": {
+                                "type": "object",
+                                "properties": {
+                                  "baseline": {
+                                    "type": [
+                                      "null",
+                                      "array"
+                                    ],
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "current": {
+                                    "type": [
+                                      "null",
+                                      "array"
+                                    ],
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "baseline",
+                                  "current"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "change": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "runner",
+                              "baseline",
+                              "current",
+                              "p50_delta_ms",
+                              "p95_delta_ms",
+                              "p99_delta_ms",
+                              "p99_delta_pct",
+                              "error_delta_pp",
+                              "rps_delta_pct",
+                              "p99_ci",
+                              "change"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "incidents": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "runner": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string"
+                              },
+                              "baseline": {
+                                "type": [
+                                  "null",
+                                  "object"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "start_s": {
+                                    "type": "number"
+                                  },
+                                  "end_s": {
+                                    "type": "number"
+                                  },
+                                  "peak_p99_ms": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "class",
+                                  "start_s",
+                                  "end_s",
+                                  "peak_p99_ms"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "current": {
+                                "type": [
+                                  "null",
+                                  "object"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "start_s": {
+                                    "type": "number"
+                                  },
+                                  "end_s": {
+                                    "type": "number"
+                                  },
+                                  "peak_p99_ms": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "class",
+                                  "start_s",
+                                  "end_s",
+                                  "peak_p99_ms"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "runner",
+                              "status",
+                              "baseline",
+                              "current"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "config_diff": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "warnings": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "severity": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "detail": true,
+                              "fix": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "severity",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "gate_settings": {
+                          "type": "object",
+                          "properties": {
+                            "relative_pct": {
+                              "type": "number"
+                            },
+                            "relative_ms": {
+                              "type": "number"
+                            },
+                            "error_pp": {
+                              "type": "number"
+                            },
+                            "budgets_ms": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "number"
+                              }
+                            }
+                          },
+                          "required": [
+                            "relative_pct",
+                            "relative_ms",
+                            "error_pp"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "description": "The comparison. Read summary, then gates; regression is true when any gate failed. The same document tracepoint compare --output json prints.",
+                      "required": [
+                        "schema_version",
+                        "baseline",
+                        "current",
+                        "regression",
+                        "summary",
+                        "gates",
+                        "runners",
+                        "gate_settings"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string",
+                      "description": "The rendered markdown or junit, when asked for."
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "Where the html page or rendered format was written, in the current run's directory."
+                    }
+                  },
+                  "required": [
+                    "comparison",
+                    "format"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "description": "Compare two runs"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A coded error; branch on error.code, never on the message."
+          }
+        },
+        "summary": "Compare two runs",
+        "x-annotations": {
+          "destructive": false,
+          "idempotent": true,
+          "open_world": false,
+          "read_only": true
+        }
+      }
+    },
     "/v1/ops/get_policy": {
       "post": {
         "description": "Return the safety policy this server enforces: which targets may be loaded, whether writes and destructive statements are allowed, rate, concurrency and duration ceilings, and how many runs may be active at once. Call it before writing a configuration so the configuration fits, and when a call is refused with a POLICY_* code. The policy was fixed by a human when the server started; no call can change or exceed it - report a refusal to the human rather than working around it.",

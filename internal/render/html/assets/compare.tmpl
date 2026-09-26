@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="{{.CSP}}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{.Title}}</title>
+<style>{{.UplotCSS}}</style>
+<style>{{.AppCSS}}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the comparison</a>
+<header class="masthead">
+  <div class="wrap">
+    <p class="eyebrow">TracePoint comparison</p>
+    <h1><code>{{.C.Baseline.ID}}</code> → <code>{{.C.Current.ID}}</code></h1>
+    <p class="meta">
+      <span>baseline started {{.C.Baseline.StartedAt}}, {{secs .C.Baseline.DurationS}}, validity {{.C.Baseline.Validity}}</span>
+      <span>current started {{.C.Current.StartedAt}}, {{secs .C.Current.DurationS}}, validity {{.C.Current.Validity}}</span>
+    </p>
+    <ul class="badges" aria-label="Comparison outcome">
+      <li class="badge {{if .C.Regression}}fail{{else}}pass{{end}}">{{if .C.Regression}}regression{{else}}no regression{{end}}</li>
+    </ul>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+
+<section id="summary" aria-labelledby="summary-h">
+  <h2 id="summary-h">Summary</h2>
+  <p class="lead">{{.C.Summary}}</p>
+  {{range .C.Warnings}}<p class="callout">{{.Message}}{{if .Fix}} <small>{{.Fix}}</small>{{end}}</p>{{end}}
+  <p class="small">A p99 change counts only when the two runs' 95% confidence intervals do not overlap. {{.Caveat}}</p>
+</section>
+
+<section id="gates" aria-labelledby="gates-h">
+  <h2 id="gates-h">Gates</h2>
+  <table>
+    <caption>Relative: more than {{num .C.GateSettings.RelativePct}}% and {{num .C.GateSettings.RelativeMS}}ms, and significant. Error rate: more than {{num .C.GateSettings.ErrorPP}} percentage points.</caption>
+    <thead><tr><th scope="col">Runner</th><th scope="col">Gate</th><th scope="col">Result</th><th scope="col">Detail</th></tr></thead>
+    <tbody>
+    {{range .C.Gates}}<tr><th scope="row">{{.Runner}}</th><td>{{.Name}}</td><td>{{if .Pass}}pass{{else if .Insufficient}}<strong>insufficient data</strong>{{else}}<strong>fail</strong>{{end}}</td><td>{{.Message}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+
+<section id="runners" aria-labelledby="runners-h">
+  <h2 id="runners-h">Runners</h2>
+  <table>
+    <caption>Response time, baseline → current. The intervals are 95% confidence intervals for p99.</caption>
+    <thead><tr><th scope="col">Runner</th><th scope="col">p50</th><th scope="col">p95</th><th scope="col">p99</th><th scope="col">Δ p99</th><th scope="col">p99 intervals</th><th scope="col">Errors</th><th scope="col">Throughput</th><th scope="col">Change</th></tr></thead>
+    <tbody>
+    {{range .C.Runners}}{{template "delta" .}}{{end}}
+    </tbody>
+  </table>
+  {{if .C.Labels}}
+  <details>
+    <summary>Labels</summary>
+    <table>
+      <thead><tr><th scope="col">Label</th><th scope="col">p50</th><th scope="col">p95</th><th scope="col">p99</th><th scope="col">Δ p99</th><th scope="col">p99 intervals</th><th scope="col">Errors</th><th scope="col">Throughput</th><th scope="col">Change</th></tr></thead>
+      <tbody>
+      {{range .C.Labels}}{{template "delta" .}}{{end}}
+      </tbody>
+    </table>
+  </details>
+  {{end}}
+</section>
+
+<section id="timelines" aria-labelledby="timelines-h">
+  <h2 id="timelines-h">Timelines</h2>
+  <p class="small">Each run is drawn from its own start; baseline dashed. Warm-up and thin buckets are gaps.</p>
+  <div id="overlay"></div>
+</section>
+
+{{if .C.Incidents}}
+<section id="incidents" aria-labelledby="incidents-h">
+  <h2 id="incidents-h">Incidents</h2>
+  <table>
+    <thead><tr><th scope="col">Runner</th><th scope="col">Status</th><th scope="col">Baseline</th><th scope="col">Current</th></tr></thead>
+    <tbody>
+    {{range .C.Incidents}}<tr><th scope="row">{{.Runner}}</th><td>{{.Status}}</td><td>{{with .Baseline}}{{.ID}} {{secs .StartS}}–{{secs .EndS}}, peak {{ms .PeakP99MS}}{{else}}—{{end}}</td><td>{{with .Current}}{{.ID}} {{secs .StartS}}–{{secs .EndS}}, peak {{ms .PeakP99MS}}{{else}}—{{end}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{if .C.ConfigDiff}}
+<section id="config" aria-labelledby="config-h">
+  <h2 id="config-h">Configuration differences</h2>
+  <ul>{{range .C.ConfigDiff}}<li><code>{{.}}</code></li>{{end}}</ul>
+</section>
+{{end}}
+
+<section id="about" aria-labelledby="about-h">
+  <h2 id="about-h">About</h2>
+  <p class="small">Comparison schema {{.C.SchemaVersion}}. This file makes no network requests.</p>
+  <details>
+    <summary>Third-party notices</summary>
+    <p>Charts are drawn with uPlot 1.6.32, embedded unmodified under the MIT licence:</p>
+    <pre class="license">{{.License}}</pre>
+  </details>
+</section>
+
+</main>
+
+<script type="application/json" id="tp-view">{{.View}}</script>
+<script>{{.LocaleJS}}</script>
+<script>{{.UplotJS}}</script>
+<script>{{.AppJS}}</script>
+</body>
+</html>
+{{define "delta"}}<tr><th scope="row">{{.Runner}}{{if .Label}} / {{.Label}}{{end}}</th><td class="num">{{ms .Baseline.P50MS}} → {{ms .Current.P50MS}}</td><td class="num">{{ms .Baseline.P95MS}} → {{ms .Current.P95MS}}</td><td class="num">{{ms .Baseline.P99MS}} → {{ms .Current.P99MS}}</td><td class="num">{{dms .P99MS}} ({{num .P99Pct}}%)</td><td>{{if .P99CI.Baseline}}[{{ms (index .P99CI.Baseline 0)}}, {{ms (index .P99CI.Baseline 1)}}]{{else}}—{{end}} → {{if .P99CI.Current}}[{{ms (index .P99CI.Current 0)}}, {{ms (index .P99CI.Current 1)}}]{{else}}—{{end}}</td><td class="num">{{pct .Baseline.ErrorRatio}} → {{pct .Current.ErrorRatio}}</td><td class="num">{{num .Baseline.AchievedRPS}}/s → {{num .Current.AchievedRPS}}/s</td><td>{{.Change}}</td></tr>{{end}}

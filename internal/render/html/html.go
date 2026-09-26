@@ -93,7 +93,13 @@ type qrow struct {
 }
 
 var funcs = template.FuncMap{
-	"ms":     render.MS,
+	"ms": render.MS,
+	"dms": func(v float64) string {
+		if v < 0 {
+			return "−" + render.MS(-v)
+		}
+		return "+" + render.MS(v)
+	},
 	"secs":   render.Seconds,
 	"num":    render.Number,
 	"pct":    render.Percent,

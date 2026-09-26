@@ -114,7 +114,7 @@ func TestRegistryIsComplete(t *testing.T) {
 			t.Errorf("%s: the description must say what it does and when to use it", op.Name)
 		}
 	}
-	want := "get_policy get_run_digest get_run_section get_run_status list_runs plan_run render_report scaffold_config start_run stop_run validate_config wait_for_run"
+	want := "compare_runs get_policy get_run_digest get_run_section get_run_status list_runs plan_run render_report scaffold_config start_run stop_run validate_config wait_for_run"
 	if got := strings.Join(names, " "); got != want {
 		t.Fatalf("operations = %s", got)
 	}
@@ -403,5 +403,64 @@ func TestScaffoldDetects(t *testing.T) {
 		if _, err := call(t, h, "scaffold_config", in); err == nil {
 			t.Fatalf("%v escaped the server's directory", in)
 		}
+	}
+}
+
+// finish starts a run and waits for it.
+func finish(t *testing.T, h *harness, cfg string) string {
+	t.Helper()
+	started, err := call(t, h, "start_run", map[string]any{"config": cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := started.(*ops.StartOut).RunID
+	for range 10 {
+		out, werr := call(t, h, "wait_for_run", map[string]any{"run_id": id, "timeout_s": 5})
+		if werr != nil {
+			t.Fatal(werr)
+		}
+		if out.(*ops.WaitOut).Finished {
+			return id
+		}
+	}
+	t.Fatalf("run %s did not finish", id)
+	return ""
+}
+
+func TestCompareRuns(t *testing.T) {
+	h := newHarness(t)
+	a := finish(t, h, h.config("2s"))
+	b := finish(t, h, h.config("2s"))
+
+	out, err := call(t, h, "compare_runs", map[string]any{"baseline_run_id": a, "current_run_id": b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmp := out.(*ops.CompareOut)
+	raw, _ := json.Marshal(cmp.Comparison)
+	schematest.Validate(t, schemas.Compare, raw)
+	if cmp.Comparison.Baseline.ID != a || cmp.Comparison.Current.ID != b || cmp.Content != "" {
+		t.Fatalf("comparison = %+v", cmp)
+	}
+
+	out, err = call(t, h, "compare_runs", map[string]any{"baseline_run_id": a, "current_run_id": b, "format": "markdown"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if md := out.(*ops.CompareOut); !strings.Contains(md.Content, "TracePoint comparison") || md.Path == "" {
+		t.Fatalf("markdown = %+v", md)
+	}
+	out, err = call(t, h, "compare_runs", map[string]any{"baseline_run_id": a, "current_run_id": b, "format": "html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page := out.(*ops.CompareOut); page.Content != "" || !strings.HasSuffix(page.Path, ".html") {
+		t.Fatalf("html = %+v", page)
+	}
+	if _, err := call(t, h, "compare_runs", map[string]any{"baseline_run_id": a, "current_run_id": "nope"}); code(err) != errs.CodeRunNotFound {
+		t.Fatalf("an unknown run: %v", err)
+	}
+	if _, err := call(t, h, "compare_runs", map[string]any{"baseline_run_id": a, "current_run_id": b, "format": "pdf"}); code(err) != errs.CodeOpsInvalidInput {
+		t.Fatalf("an unknown format: %v", err)
 	}
 }

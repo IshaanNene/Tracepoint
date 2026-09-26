@@ -114,7 +114,7 @@ func Registry() []Operation {
 	all := []Operation{
 		getPolicy(), scaffoldConfig(), validateConfig(), planRun(), startRun(),
 		getRunStatus(), waitForRun(), stopRun(), getRunDigest(), getRunSection(), listRuns(),
-		renderReport(),
+		renderReport(), compareRuns(),
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	return all

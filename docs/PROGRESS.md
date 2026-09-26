@@ -14,9 +14,97 @@
 | 3 | Analysis: telemetry samplers, incidents, culprits, correlation, verdicts, validity, digest; faultbox and the known-answer suite | Complete, approved |
 | 4 | Agent interfaces: run store, detach, events, audit log, ops registry, `capabilities`, MCP, REST, parity tests | Complete, approved |
 | 5 | Human interfaces: HTML, Markdown, JUnit, `report`, TUI | Complete, approved |
-| 6 | Journeys and onboarding: vus executor, extract/expect, feeders, think time, cookies, strain finder, `quick`, `init` | **Complete — awaiting approval** (one open question: the clean known answer, below) |
-| 7 | Capacity and compare: auto-ramp, USL, confidence intervals, gates, incident diff | Not started |
+| 6 | Journeys and onboarding: vus executor, extract/expect, feeders, think time, cookies, strain finder, `quick`, `init` | Complete, approved |
+| 7 | Capacity and compare: auto-ramp, USL, confidence intervals, gates, incident diff | **Complete — awaiting approval** (the clean-run question is still open) |
 | 8 | Integration and release: Go facade, `tracepointtest`, Action, Docker, skill, contract CI, fuzzing, soak, GoReleaser, agent dogfood | Not started |
+
+## Phase 7 — complete
+
+A run can now find its own ceiling, and two runs can be compared without mistaking
+noise for a regression. A `capacity` section turns a run into an auto-ramp search on
+one timeline; `tracepoint compare` and `compare_runs` judge a run against a baseline
+with confidence intervals and gates that fail CI.
+
+### Delivered
+
+| Deliverable | Where | Evidence |
+| --- | --- | --- |
+| The search, written test-first: doubling, bisection or `linear:N` refinement to the resolution, confirmation of both sides with an unstable range when either flips, abort | `internal/capacity/search.go` | `TestSearchDoublesThenBisectsThenConfirms`, `TestSearchLinearFill`, `TestSearchReportsAnUnstableRange`, `TestSearchAbortsAtOnce`, `TestSearchCapsAtMax`, `TestSearchWhenTheFirstLevelBreaks`; the property `TestSearchIsBoundedProperty` (terminates within `MaxLevels`, levels inside [start, max], the boundary brackets the true break within the resolution) |
+| The break rules: any runner's SLO, the open-model plateau (< 90% of offered), the closed-model plateau (< 10% marginal efficiency), abort past 50% errors; the knee | `internal/capacity/judge.go` | `TestJudge*`, `TestKnee` |
+| The USL fit: non-negative two-variable least squares inside a one-dimensional search over λ; hidden below 4 levels or R² 0.9 | `internal/capacity/usl.go` | `TestUSLRecoversKnownParameters`, `TestUSLHiddenBelowR2`, `TestUSLCoefficientsAreNeverNegative`, the property `TestUSLReproducesExactDataProperty`; capacity coverage 96.8% |
+| Measurement windows (merged sketches), early sealing in index order, an executor `Origin` | `internal/metrics`, `internal/executor` | `TestWindowMergesSketches`, `TestOriginShiftsTheSchedule`, `TestVUsOriginShiftsTheProfile` |
+| Capacity configuration: defaults, validation, `run.duration` as the budget, the policy's ceilings | `internal/config/capacity.go` | `TestCapacityDefaults`, `TestCapacityRejects`, `TestCapacityCeilingIsHeldToPolicy`, `TestCapacityBudgetMeetsThePolicy` |
+| The search in the engine: warm runners, one timeline, levels on fresh buckets, per-level windows judged against every SLO, `level.*` events | `internal/engine/capacity.go` | `TestCapacitySearch` (rate: boundary 300/400 around a ~400/s target, confirmed; events and digest validated), `TestCapacitySearchByConcurrency` (plateau at 5/6 users for a target that serves four at a time) |
+| The culprit of each broken level, by the ordinary analysis over the timeline up to the level's end | `internal/analysis/capacity.go` | `TestAttributeLevels` |
+| Capacity in the plan, the terminal, Markdown and the digest (schema 1.2); the HTML report's existing panel | `internal/plan`, `internal/render`, `internal/result` | `TestCapacitySection`, `TestCapacityLevels`, `TestCapacitySummary`; MCP and OpenAPI golden files |
+| Compare, written test-first: order-statistic intervals for p99, the three gates, insufficient data, incident and configuration diffs, `COMPARE_TAIL_ONLY` | `internal/compare` | `TestAAShowsNoChange`, `TestAAFalseChangeRate` (0 of 300 simulated A/A pairs called changed), `TestShiftIsARegression`, `TestSmallSignificantRiseIsNotAGate`, `TestInsufficientData`, `TestBudgetCrossing`, `TestErrorRateGate`, `TestIncidentDiff`, `TestQuantileInterval`, `TestTailOnlyRegressionIsNoted`; every report validated against `compare.schema.json` |
+| `tracepoint compare` with table, json, markdown, junit and html; `compare_runs` | `internal/cli/compare.go`, `internal/ops/compare.go`, `internal/render/*/compare.go` | `TestCompareCommand`, `TestCompareRuns`, `TestComparePageIsSealed`, `TestComparePageInABrowser` (headless Chromium: three charts, a silent console) |
+| The A/A and +50ms known answers | `tools/faultbox` | `TestKnownComparisons` |
+
+### Evidence
+
+```
+$ make check
+  fmt, vet, golangci-lint (0 issues), race tests, contract checks: all pass
+  govulncheck: could not run - vuln.go.dev is not reachable from this environment (CI runs it)
+$ make integration                 # exit 0
+$ make e2e                         # green, A/A and +50ms comparisons included (one earlier run: see below)
+coverage: capacity 96.8%  compare 95.3%
+          (engine 6.5% by its own tests: it is exercised end to end from internal/cli)
+```
+
+### The known answers under this host
+
+The first `make e2e` of the phase failed two lock scenarios, each by a one-bucket
+blip at an incident's edge: a pause merged into the lock incident two buckets early,
+and, as a lock released, ~100 queued probe queries reaching Postgres at once and
+lifting the application's p99 to 11ms for one bucket. Both scenarios then passed
+three times each at this phase's head and three times each at the phase 6 commit, and
+a second `make e2e` was fully green. They are the same family as the clean-run
+question below, not a phase 7 regression.
+
+The clean-run question from phase 6 is still open: raising its load was tried and
+rejected on evidence, and what remains is whether the stall rule should also set aside
+pauses that land in service time rather than dispatch.
+
+### Bugs found, and fixed
+
+| Found by | Bug | Fix |
+| --- | --- | --- |
+| The race detector, on the first capacity search | `Snapshot` encoded the whole-run sketches without their lock; latent while only the sweeper sealed | Encoded under the accumulator's lock |
+| The race detector | The telemetry sampler and progress read each runner's executor directly, which a search replaces between levels | Behind a lock, with statistics summed across levels |
+| The race detector | The search emitted sealed-bucket events from its own goroutine | Only the sweeper emits them |
+| Writing the dry-run plan | A search's default budget (25m40s for a typical plan) was refused outright by the server policy's 10m ceiling | A defaulted budget is shortened to the ceiling, with `CAPACITY_BUDGET_CLAMPED` |
+| Reviewing the terminal output | Coloured cells skewed the table's columns, which pad by byte length | The capacity table is plain text |
+| The comparison page | A negative delta printed as "-49.00ms" | A signed formatter |
+
+### Deviations from the spec, and judgements it left open
+
+Every one is argued in [ADR-011](adr/011-capacity-and-compare.md).
+
+| Item | Reason |
+| --- | --- |
+| `run.duration` is a search's time budget; unset, it is the longest the plan can take, shortened to a policy ceiling rather than refused | A search's length depends on the target |
+| A search is not judged against its SLOs as a whole | It breaks them on purpose; each level is judged against them instead |
+| The probes hold their own configured peak at every level | So each tier is measured at every level, which is what attribution needs |
+| Closed-model plateau: < 10% marginal efficiency | "Achieved < 90% of offered" means nothing when offered load is an output |
+| The knee: the first level past twice the lowest lower p99 | The spec names the knee without defining it; the strain finder's factor |
+| Mean concurrency is Little's Law over the window | The spec's "measured mean concurrency"; the executors keep peaks, not means, per bucket |
+| A search's dispatch lag is its worst level's p99 | Percentiles are never averaged; the worst is a bound |
+| compare gates runners; labels are reported, not gated | A label's interval is wider, and its gate would fail as insufficient far more often |
+| A rise too large to clear on too little data fails, as `COMPARE_INSUFFICIENT_DATA` | The code and its exit 1 were registered in phase 0; a gate that passes what it cannot judge is not a gate |
+| `COMPARE_TAIL_ONLY` | Not in the spec: an info note when only p99 moved, the signature a paused host shares with a real tail regression |
+| The comparison has its own schema, `compare` 1.0 | Contract-first (CLAUDE.md) |
+| Result schema 1.1 → 1.2, digest 1.1 → 1.2 | Level windows; the digest's capacity block. Additive |
+| The public Go `Compare` | Phase 8 builds the facade (ADR-009) |
+
+### Risks carried into phase 8
+
+| Risk | Mitigation |
+| --- | --- |
+| Timing-sensitive tests on this host: a paused VM or an in-process server's stalls reach p99 | The clean-run question below; test comments say what each run can and cannot show |
+| Validity is judged per run, so one level whose generator fell behind invalidates a search | Reported, never hidden; per-level validity is a candidate for later |
+| USL on a hard ceiling overshoots (436/s predicted against ~370/s measured, a semaphore) | METHODOLOGY says the boundary, which was measured, is the number to quote |
 
 ## Phase 6 — complete
 

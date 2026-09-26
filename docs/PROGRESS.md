@@ -53,9 +53,7 @@ $ make check
   fmt, vet, golangci-lint (0 issues), race tests, contract checks: all pass
   govulncheck: could not run - vuln.go.dev is not reachable from this environment (CI runs it)
 $ make integration                 # exit 0
-$ make e2e                         # FAILS in this environment - see "The clean run and vCPU stalls" below
-  TestKnownAnswers/clean_run_has_no_incidents fails in 3 runs of 5 at this commit
-  - and in 4 of 5 at the phase 3 commit (5ecc6d6), run back to back on the same host
+$ make e2e                         # green three times running, after the stall rule below
 coverage: render 100%  render/cli 92.6%  render/html 91.7%  render/markdown 92.2%
           render/junit 88.7%  render/report 89.5%  live 89.0%
 ```
@@ -70,49 +68,31 @@ coverage: render 100%  render/cli 92.6%  render/html 91.7%  render/markdown 92.2
 | The race detector | The "starting" log line reached stderr after the live view had started drawing there | The view takes the log over the moment it starts |
 | Self-review against ADR-002 | Thin buckets were gaps; ADR-002 says they are drawn, but never trusted | A points-only series per runner, apart from the line |
 
-### The clean run and vCPU stalls - a decision needed
+### The clean run and vCPU stalls - resolved after review
 
-The known-answer suite passed twice at the end of phase 3. On this host it now fails
-most runs of the clean scenario, **at the phase 3 commit as well as this one**, so it
-is not a regression from phases 4 or 5. The cause, from the failing runs' own
-generator telemetry: in one bucket, every runner's dispatch lag jumps together from
-about 1ms to 14-24ms while GC pauses stay under 0.4ms, Go scheduler latency under
-0.4ms and CPU near 5%. That is the whole process - once, the target too - being
-paused, not the target slowing. The host is a Firecracker microVM, and `/proc/stat`
-shows steal time: 0.54s stolen from the vCPUs during a single 45s run.
+The known-answer suite's clean scenario failed on this host in 3 runs of 5 - and in 4
+of 5 at the phase 3 commit, so not a regression. The failing runs' own telemetry
+showed the cause: the host (a Firecracker microVM with measurable steal time) paused
+the whole generator for a bucket, every runner's client wait jumped together, and the
+relative rule faithfully flagged it.
 
-TracePoint reports it faithfully. The stall is 3x and over 5ms above the baseline, so
-the spec's relative rule makes the bucket hot. Client wait dominates, so the incident
-is `client_limited` and the verdict blames the generator, which is true. But the
-spec also says a clean run has zero incidents. One failing run also showed a real
-weakness: a one-bucket Redis blip during the handler-delay fault joined the app's
-incident and was named culprit, although it went hot four buckets after the
-application at 0.2x its threshold (score -6).
+On approval of option 1 ("detect generator stalls"), `internal/analysis/stall.go`
+now sets such buckets aside: they are neither hot nor part of any baseline, and the
+run carries a `GENERATOR_STALL` warning and a `dedicated-generator-host`
+recommendation. The first version of the rule also swallowed the Postgres-lock
+scenarios - a real storage stall slows every runner's client wait too - which the
+suite caught; the final rule also requires the pause to be short (at most two
+buckets) and no tier's service time to rise, over its threshold, by more than ten
+times the pause. Every condition and its reason is in `METHODOLOGY.md`, and each has a
+unit test built from the measured data.
 
-Options, none taken without approval:
+The culprit fix was approved with it: a negative best score - every hot tier went hot
+only after the application - names no culprit, and the verdict says the tier
+followed, rather than calling it a tie.
 
-1. **Detect generator stalls and keep them out of incidents.** When dispatch lag
-   rises on every runner in the same bucket, mark the bucket stalled: it cannot be
-   hot, and a `GENERATOR_STALL` finding degrades validity instead. Keeps the spec's
-   intent (a clean target yields no incidents, and the run says it was disturbed);
-   adds a rule and a code. My recommendation.
-2. **Require two buckets for a relative-only hot streak.** Simple; stops one-bucket
-   blips everywhere, but also delays detecting a real short spike by a bucket, and
-   departs from §5.5 as written.
-3. **Accept a one-bucket `client_limited` incident in the clean scenario.** Changes
-   only the test; the product then reports every host hiccup as an incident.
-4. **Run the suite only on dedicated hosts.** Changes nothing; CI on shared runners
-   would stay flaky.
-
-Separately, whatever is chosen: a culprit that went hot after the application and
-below its threshold should not be named (a negative score means the evidence points
-away from it); the incident should be reported without a culprit. That is a small,
-test-first change to `internal/analysis`, also awaiting approval.
-
-Fixed now, because it is plainly a bug: since phase 4 every run writes a directory,
-and the suite wrote them into `tools/faultbox/runs/` in the source tree. It now uses
-the scenario's temporary directory. A failing scenario also logs the generator's
-telemetry around each incident, which is how this cause was found.
+```
+$ make e2e     # three consecutive runs after the change: exit 0, 0, 0
+```
 
 ### Deviations from the spec, and judgements it left open
 
@@ -137,7 +117,7 @@ telemetry around each incident, which is how this cause was found.
 | uPlot is one maintainer's library | It is vendored and pinned; the report does not depend on its future |
 | Bubble Tea v1 while v2 exists | v1 is stable and does what is needed; the view is small, and its model is independent of the terminal library's driver |
 | Charts are drawn on canvas, which screen readers cannot read | Every chart has a label and a table equivalent |
-| `make e2e` is red on this host | Diagnosed above; awaiting a decision between the options |
+| The stall rule has constants tuned on one host | Each is argued from measured data and tested; the rule only ever removes buckets that every runner saw late at once, and the run says so |
 
 ## Phase 4 — complete
 

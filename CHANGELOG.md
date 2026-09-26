@@ -64,6 +64,11 @@ before it is removed in the next major.
 
 ### Fixed
 
+- A generator paused by its host (a virtualised machine's steal time) no longer
+  shows up as an incident: such buckets are set aside and reported as
+  `GENERATOR_STALL`.
+- A storage tier that went hot only after the application is no longer named as the
+  culprit.
 - A detached run ignored `--result-path`.
 - The SQL and Redis runners counted reads and writes with a data race between
   workers, found by the known-answer suite.

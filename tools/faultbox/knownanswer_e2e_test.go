@@ -391,3 +391,53 @@ func abs(v int) int {
 	}
 	return v
 }
+
+// §10: two clean runs compared (A/A) show no regression; 50ms more in the handler is
+// a significant regression, and compare exits 1.
+func TestKnownComparisons(t *testing.T) {
+	e := setup(t)
+	resultOf := func(name, fault string) string {
+		var path string
+		t.Run(name, func(t *testing.T) {
+			e.run(t, scenario{name: name, fault: fault, exit: errs.ExitOK})
+			path = filepath.Join(e.dir, strings.ReplaceAll(t.Name(), "/", "_")+".json")
+		})
+		if path == "" {
+			t.FailNow()
+		}
+		return path
+	}
+	a := resultOf("baseline", "")
+	b := resultOf("same again", "")
+	slow := resultOf("handler 50ms slower", `{"kind": "delay", "delay": "50ms"}`)
+
+	compareRuns := func(base, cur string) (int, map[string]any) {
+		var stdout, stderr bytes.Buffer
+		code := cli.Execute(context.Background(), cli.Env{
+			Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr,
+			Args:   []string{"compare", base, cur, "--output", "json"},
+			Lookup: func(string) (string, bool) { return "", false },
+		})
+		schematest.Validate(t, schemas.Compare, stdout.Bytes())
+		var doc map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+			t.Fatalf("compare output: %v\n%s", err, stderr.String())
+		}
+		return code, doc
+	}
+	if code, doc := compareRuns(a, b); code != errs.ExitOK || doc["regression"] != false {
+		t.Errorf("A/A: exit %d, %v", code, doc["summary"])
+	}
+	code, doc := compareRuns(a, slow)
+	if code != errs.ExitBreach || doc["regression"] != true {
+		t.Fatalf("+50ms: exit %d, %v", code, doc["summary"])
+	}
+	failed := false
+	for _, g := range doc["gates"].([]any) {
+		gm := g.(map[string]any)
+		failed = failed || (gm["gate"] == "relative_increase" && gm["runner"] == "http" && gm["pass"] == false)
+	}
+	if !failed {
+		t.Fatalf("the http relative gate did not fail: %v", doc["gates"])
+	}
+}

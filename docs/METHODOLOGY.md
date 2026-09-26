@@ -7,9 +7,6 @@ place — `analysis.DefaultParams()` — and every rule is a pure function of
 The reasoning behind the choices is in [ADR-005](adr/005-correlation-methodology.md);
 this file is the reference.
 
-> Sections still to come, with the phase that builds what they describe: capacity
-> search and the Universal Scalability Law (7), compare's quantile confidence
-> intervals (7).
 
 ## What the tool can claim
 
@@ -349,6 +346,125 @@ the finder says nothing.
 
 Service time rather than response time is judged, as for hot buckets, so a generator
 that queues cannot manufacture strain.
+
+## Capacity search
+
+A `capacity` section turns a run into a search for the load at which the system stops
+meeting its SLOs. The constants are in `internal/capacity`.
+
+**Levels.** The search starts at `start` and doubles until a level breaks or `max` is
+reached. It then refines between the last level that held and the first that broke -
+by bisection, or with `refine: linear:N` by passes of N evenly spaced levels - until
+the gap is within the resolution (default: 1, or 5% of the first broken level,
+whichever is larger). Levels are whole numbers. With `confirm` (the default) both
+sides are run once more; if either flips, the boundary is reported as a range - from
+the highest level that held on every run to the lowest that broke on every run -
+rather than a point, because a boundary that moves between runs is not a number
+worth quoting.
+
+**One timeline.** Every level runs on the same runners, so connections stay warm, and
+on the run's single clock. A level starts on a bucket boundary, holds its value for
+`step_duration`, and its first `settle` (default 20% of the step) is discarded; its
+measured window is the whole buckets after that. The window's figures come from
+sketches merged across its buckets - never from averaging per-bucket percentiles.
+Nothing else is in flight once a level has drained, so its buckets are sealed at
+once, and the next level starts after `cooldown` on a later bucket: two levels never
+share one. The knob's runner holds the level's value; every other runner holds its
+own configured peak at every level, so the probes measure each tier throughout.
+
+**Breaking.** A level breaks when
+
+| Rule | Why |
+| --- | --- |
+| Any runner breaches any of its SLOs in the level's window (response time, and error rate) | Capacity is where the promise stops being kept, whichever tier breaks it |
+| Open model: the knob's runner completes less than 90% of the rate offered | A plateau: the target cannot keep up, whatever its latency says |
+| Closed model: the extra users bought less than a tenth of the throughput proportional scaling from the highest lower level that held would give | Offered load is an output of a closed model, so a plateau is more users buying almost nothing |
+| More than half the knob runner's operations failed | Not a level that broke but a target that is failing: the search stops at once and says so |
+
+A search is not judged against its SLOs as a whole - it breaks them on purpose - so
+it exits 0 unless the run itself failed. `run.duration` is its time budget: a level
+that would not fit ends the search with `CAPACITY_INCOMPLETE`. Left unset, the budget
+is the longest the plan could take; a policy ceiling below that shortens it, with
+`CAPACITY_BUDGET_CLAMPED`, rather than refusing the run. `max` is held to the policy's
+rate (or in-flight) ceiling like any configured load.
+
+**The culprit of a broken level** is found by the ordinary analysis, run over the
+timeline up to the level's end, so the lower levels are its baseline and nothing later
+can reach back into it. The incident that overlaps the level's window most names the
+tier: its culprit when correlated, the hot storage tier when storage-only, the
+application when app-only. A level that broke on a plateau with nothing going hot, or
+on the generator's side, names none.
+
+**The knee** is the first level, by value, whose p99 exceeds twice the lowest p99 of
+any lower level: where latency began climbing sharply.
+
+**Mean concurrency** of a level is Little's Law over its window: throughput times
+mean response time. It is the x of the scalability fit.
+
+### The Universal Scalability Law
+
+Over the levels that held (confirmation runs aside), TracePoint fits
+
+X(N) = λN / (1 + σ(N−1) + κN(N−1))
+
+where N is the measured mean concurrency and X the throughput: λ is throughput per
+unit of concurrency without interference, σ contention (the serialised share of the
+work) and κ crosstalk (coherency cost, which makes throughput fall after a peak). For
+a fixed λ the model is linear in σ and κ once rearranged, so the fit is a
+two-variable non-negative least squares - σ, κ ≥ 0 - inside a one-dimensional search
+over λ that minimises the squared error in throughput itself. The predicted peak is at
+N* = √((1−σ)/κ); with κ = 0 there is none, and none is invented.
+
+The fit is reported only with at least 4 levels and R² ≥ 0.9, because an
+extrapolation from too little, or one that explains too little, is worse than none.
+It is a model, not a measurement: a target with a hard ceiling - a fixed pool, a
+semaphore - is not the smooth contention USL describes, and its predicted peak can
+overshoot the real one. The boundary, which was measured, is the number to quote.
+
+## Compare
+
+`tracepoint compare` (and `compare_runs`) judges a run against a baseline. The
+constants are in `internal/compare`.
+
+**Is a change real?** Each run's result carries its whole-run response-time sketch. For
+p99 the distribution-free confidence interval is the pair of order statistics at ranks
+n·q ± 1.96·√(n·q·(1−q)), read from the sketch - a 95% interval that assumes nothing
+about the shape of the distribution. When a rank falls outside [1, n] there is too
+little data for an interval, and the change is `insufficient`. A change is called
+`slower` or `faster` only when the two runs' intervals do not overlap. That is
+conservative by design: two 95% intervals from the same distribution fail to overlap
+far less often than 5% of the time - in 300 simulated A/A pairs of 3,000 samples,
+never - so noise is not reported as a regression, at the cost of missing some small
+real ones.
+
+**Gates.** Any failure makes the comparison a regression and the command exit 1:
+
+| Gate | Fails when |
+| --- | --- |
+| `budget_crossing` | The current p99 is over its budget and the baseline's was not. Budgets are the runs' own SLOs unless `--budget` names them. No significance is needed: the promise was broken |
+| `relative_increase` | p99 rose by more than 10% **and** more than 5ms, and the change is `slower`. When the rise is that large but the change is `insufficient`, the gate fails as `COMPARE_INSUFFICIENT_DATA`: it can be neither confirmed nor cleared |
+| `error_rate_increase` | The error rate rose by more than 0.5 percentage points |
+
+Gates are judged per runner; labels are compared and reported, not gated, because a
+label's samples are a fraction of its runner's.
+
+**What the intervals do not cover.** They are built for sampling noise. A run whose
+environment changed - a paused virtual machine, a noisy neighbour, a server sharing a
+process with something that stalls - has a genuinely different tail, and the intervals
+rightly call it a change. A pause holding requests for P shares out over a run of
+length D as P/D of its requests, so a p99 gate needs runs much longer than a hundred
+times the longest pause, and a quiet host. When only the tail moved - p99 over the
+gate, p50 and p95 within it - the comparison notes it with `COMPARE_TAIL_ONLY`; the
+gate still fails, because a real regression can live in the tail alone.
+
+**Incidents** are paired per runner: a baseline and a current incident match when
+their windows meet within two buckets. A matched pair is `worsened` or `improved` when
+the runner's peak p99 moved by more than the relative gate's thresholds, else
+`unchanged`; the rest are `new` or `fixed`.
+
+**Warnings.** Comparing an invalid run is flagged as an error-severity warning: its
+numbers describe the generator. Differing configurations are listed key by key, and a
+runner present in only one run is named rather than dropped.
 
 ## The known-answer suite
 

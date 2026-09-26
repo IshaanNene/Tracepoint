@@ -148,6 +148,19 @@ Findings are not failures: they appear in `analysis.validity.findings`, in
 | `CONN_REUSE_LOW` | warn | Keep-alive is on but connections were not reused — usually `max_idle_conns_per_host` below `max_in_flight` |
 | `DANGEROUS_COMMAND` | warn | An O(N) blocking command such as `KEYS` is in the mix; it will distort both the target and the measurement |
 | `PROBE_TRIVIAL` | info | Every database probe query is `SELECT 1`: it sees the connection and the server but none of the application's tables, so a healthy probe does not clear the database. Probe with a query the application runs |
+| `CAPACITY_INCOMPLETE` | warn | A capacity search stopped before it finished: its time budget (`run.duration`) ran out, the run was stopped, or more than half the operations at a level failed. The boundary reported is what was found so far |
+| `CAPACITY_BUDGET_CLAMPED` | info | A capacity search could take longer than the policy's `max_duration`, and no `run.duration` was given, so the policy's ceiling became its budget. It stops there if it has not finished |
 | `LABEL_OVERFLOW` | info | More than 50 labels for a runner; the remainder are collected under `other` |
 | `LABEL_TIMELINE_DROPPED` | info | Per-label timelines exceeded the retention budget and were dropped. Charts lose per-label detail; no analysis is affected ([ADR-002](adr/002-sketches-and-memory.md)) |
 | `INSUFFICIENT_SAMPLES` | info | Buckets fell below `min_samples`. They are drawn but never used as evidence |
+
+### Comparison findings
+
+A comparison's `warnings`, from `tracepoint compare` and `compare_runs`.
+
+| Code | Severity | Meaning and fix |
+| --- | --- | --- |
+| `COMPARE_INVALID_INPUT` | error | One of the runs is invalid: its numbers describe the generator, so a difference may be the generator's. Re-run it until it is valid |
+| `COMPARE_CONFIG_DIFFERS` | warn | The runs were configured differently; the differing keys are listed. A change may come from the configuration rather than the system |
+| `COMPARE_RUNNER_MISSING` | warn | A runner is in only one of the runs, so it is not compared |
+| `COMPARE_TAIL_ONLY` | info | p99 crossed the relative gate while p50 and p95 stayed within it: only the tail moved. That can be real - contention hitting a few percent of requests - and it is also what a paused host looks like. If nothing in the system changed, re-run both on a quiet host before acting on it |

@@ -3,7 +3,8 @@
 // The open model (arrival-rate) fires arrivals on a schedule regardless of whether
 // earlier ones have finished, which is what makes latency coordinated-omission
 // correct: a target that slows down cannot reduce the load offered to it, so its
-// stalls are measured rather than hidden. The closed model (vus) arrives in phase 6.
+// stalls are measured rather than hidden. The closed model (vus.go) runs a population
+// of users instead, each looping as fast as the target answers.
 //
 // When every worker is busy and the dispatch queue is full, an arrival is dropped and
 // counted - never queued without bound. An unbounded queue would turn a capacity

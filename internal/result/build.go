@@ -28,6 +28,8 @@ type RunnerInput struct {
 	Stages   []Stage
 	// StartTarget is where the profile began; nil when unknown.
 	StartTarget *float64
+	// ExecType is the executor that ran: arrival-rate or vus.
+	ExecType string
 }
 
 // BuildInput is everything needed to assemble a result.
@@ -171,8 +173,12 @@ func buildRunner(in RunnerInput) Runner {
 	}
 
 	st := in.Stats
+	execType := in.ExecType
+	if execType == "" {
+		execType = "arrival-rate"
+	}
 	out.Executor = &ExecutorStats{
-		Type: "arrival-rate", Offered: st.Offered, Dispatched: st.Dispatched,
+		Type: execType, Offered: st.Offered, Dispatched: st.Dispatched,
 		Dropped: st.Dropped, MaxInFlight: st.MaxInFlight, PeakInFlight: st.PeakInFlight,
 		DispatchLagMS: convertQuantiles(st.DispatchLag), Stages: in.Stages, StartTarget: in.StartTarget,
 	}

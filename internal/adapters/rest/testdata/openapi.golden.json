@@ -1318,6 +1318,9 @@
                           "peak_rps": {
                             "type": "number"
                           },
+                          "peak_vus": {
+                            "type": "number"
+                          },
                           "offered_operations": {
                             "type": "number"
                           },

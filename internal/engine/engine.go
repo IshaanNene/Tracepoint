@@ -106,7 +106,8 @@ type boundRunner struct {
 	name      string
 	runner    runner.Runner
 	collector *metrics.Collector
-	exec      *executor.ArrivalRate
+	exec      executor.Executor
+	execType  string
 	stages    []result.Stage
 	startAt   float64
 	targets   []result.Target
@@ -420,6 +421,21 @@ func (e *Engine) buildExecutors() error {
 		if err != nil {
 			return err
 		}
+		br.execType = ex.Type
+		if ex.Type == "vus" {
+			// The closed model reads the same profile as a user count over time.
+			vus, verr := executor.NewVUs(executor.VUsConfig{
+				Runner: br.runner, Profile: profile, Collector: br.collector, Recorder: br.recorder,
+				Clock: e.clk, Start: e.start, PerVU: ex.Pick == "per-vu",
+				Grace: cfg.Run.Grace.D(), Seed: e.seed, Logger: e.log,
+			})
+			if verr != nil {
+				return verr
+			}
+			br.exec = vus
+			continue
+		}
+		br.execType = "arrival-rate"
 		// Each runner gets its own source, derived from the run seed and the runner's
 		// position, so adding a runner does not change another's sequence.
 		rng := rand.New(rand.NewPCG(e.seed, uint64(len(br.name)))) //nolint:gosec // reproducibility, not secrecy
@@ -587,6 +603,7 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 		ri := result.RunnerInput{
 			Snapshot: br.collector.Snapshot(),
 			Stats:    br.exec.Stats(),
+			ExecType: br.execType,
 			Stages:   br.stages,
 		}
 		if len(br.stages) > 0 {

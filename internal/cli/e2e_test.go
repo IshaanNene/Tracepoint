@@ -597,3 +597,60 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+// A journey under the closed model, end to end: users log in, the token they are
+// given reaches their next request, and the result says which model ran.
+func TestJourneyUnderVUs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			fmt.Fprint(w, `{"token":"t-1"}`)
+		case "/items":
+			if r.Header.Get("Authorization") != "Bearer t-1" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			fmt.Fprint(w, `[1,2,3]`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	cfg := writeConfig(t, fmt.Sprintf(`
+version: 1
+run: { duration: 2s, bucket: 500ms, seed: 3, timeout: 2s }
+http:
+  base_url: %q
+  executor: { type: vus, stages: [{ duration: 1s, target: 4 }, { duration: 1s, target: 4 }] }
+  journeys:
+    - name: browse
+      steps:
+        - { name: login, method: POST, url: /login, extract: [{ name: token, path: token }] }
+        - name: list
+          url: /items
+          headers: { Authorization: "Bearer {{token}}" }
+          think: { type: constant, duration: 10ms }
+          expect: { status: [200], json: [{ path: "#", equals: 3 }] }
+`, srv.URL))
+	r := exec(t, "run", "-c", cfg, "--output", "json", "--log-level", "error")
+	if r.code != errs.ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	doc := validateAgainst(t, compileSchema(t, "result"), r.stdout, "result.json")
+	rn, _ := doc["runners"].([]any)[0].(map[string]any)
+	ex, _ := rn["executor"].(map[string]any)
+	if ex["type"] != "vus" || number(t, rn, "executor", "peak_in_flight") < 3 {
+		t.Fatalf("executor = %v", ex)
+	}
+	labels, _ := rn["labels_summary"].(map[string]any)
+	for _, l := range []string{"browse/login", "browse/list"} {
+		sum, _ := labels[l].(map[string]any)
+		if sum == nil || sum["n"].(float64) < 10 || sum["ok"] != sum["n"] {
+			t.Fatalf("%s: %v", l, sum)
+		}
+	}
+
+	// The plan speaks of users, not a rate, for the closed model.
+	plan := exec(t, "run", "-c", cfg, "--dry-run")
+	if plan.code != 0 || !strings.Contains(plan.stdout, "users") {
+		t.Fatalf("plan: %s", plan.stdout)
+	}
+}

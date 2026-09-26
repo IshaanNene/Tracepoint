@@ -1004,6 +1004,9 @@
               "peak_rps": {
                 "type": "number"
               },
+              "peak_vus": {
+                "type": "number"
+              },
               "profile": {
                 "type": "string"
               },

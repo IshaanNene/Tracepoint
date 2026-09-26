@@ -34,15 +34,18 @@ type Plan struct {
 
 // Runner is one tier's share of the plan.
 type Runner struct {
-	Name     string   `json:"name"`
-	Kind     string   `json:"kind"`
-	Driver   string   `json:"driver,omitempty"`
-	Executor string   `json:"executor"`
-	Profile  string   `json:"profile"`
-	PeakRPS  float64  `json:"peak_rps"`
-	Offered  float64  `json:"offered_operations"`
-	Labels   []string `json:"labels"`
-	Writes   []string `json:"writes,omitempty"`
+	Name     string  `json:"name"`
+	Kind     string  `json:"kind"`
+	Driver   string  `json:"driver,omitempty"`
+	Executor string  `json:"executor"`
+	Profile  string  `json:"profile"`
+	PeakRPS  float64 `json:"peak_rps"`
+	// PeakVUs is the most users a closed-model (vus) runner reaches; its offered
+	// rate is an outcome, so PeakRPS and Offered are zero.
+	PeakVUs float64  `json:"peak_vus,omitempty"`
+	Offered float64  `json:"offered_operations"`
+	Labels  []string `json:"labels"`
+	Writes  []string `json:"writes,omitempty"`
 }
 
 // SLO is one configured budget.
@@ -103,6 +106,9 @@ func Build(cfg *config.Config, effective policy.Policy, warnings []config.Warnin
 			Writes: writes[name],
 		}
 		pr.Offered = offeredOperations(ex)
+		if ex.Type == "vus" {
+			pr.PeakVUs, pr.PeakRPS = pr.PeakRPS, 0
+		}
 		p.TotalOffered += pr.Offered
 		if name == "db" && cfg.DB != nil {
 			pr.Driver = config.NormaliseDriver(cfg.DB.Driver)
@@ -174,7 +180,11 @@ func Render(p Plan) string {
 
 	for _, r := range p.Runners {
 		fmt.Fprintf(b, "  %-6s %-8s %s\n", r.Name, r.Kind, r.Profile)
-		fmt.Fprintf(b, "         peak %.0f/s, about %.0f operations, %d label(s)\n", r.PeakRPS, r.Offered, len(r.Labels))
+		if r.Executor == "vus" {
+			fmt.Fprintf(b, "         up to %.0f users, each looping as fast as the target answers; %d label(s)\n", r.PeakVUs, len(r.Labels))
+		} else {
+			fmt.Fprintf(b, "         peak %.0f/s, about %.0f operations, %d label(s)\n", r.PeakRPS, r.Offered, len(r.Labels))
+		}
 		if len(r.Writes) > 0 {
 			fmt.Fprintf(b, "         writes: %s\n", strings.Join(r.Writes, ", "))
 		}

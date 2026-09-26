@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    ports: ["8080:80"]
+    environment:
+      - DATABASE_URL=postgres://app:detect-sentinel@db/app
+      - LOG_LEVEL=info
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_PASSWORD: detect-sentinel }
+  cache:
+    image: redis:7

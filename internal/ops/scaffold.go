@@ -2,24 +2,75 @@ package ops
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/IshaanNene/Tracepoint/internal/detect"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
 )
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Scaffold writes a commented starter configuration. It is the one implementation
-// behind both `tracepoint init` and scaffold_config.
+// behind `tracepoint init`, `tracepoint quick` and scaffold_config.
 //
 // Everything that identifies a system - a DSN, an address - is written as an
 // environment reference, never a value, so the file can be committed and shared.
-func Scaffold(in ScaffoldIn) (string, []string, error) {
+// With DetectDir it infers what it can from the project; with OpenAPIPath it imports
+// requests. What is given explicitly always wins over what is inferred.
+func Scaffold(in ScaffoldIn) (*ScaffoldOut, error) {
+	out := &ScaffoldOut{}
 	var notes []string
+	var requests []detect.Request
+
+	if in.DetectDir != "" {
+		d, err := detect.Detect(in.DetectDir)
+		if err != nil {
+			return nil, err
+		}
+		out.Inferences = d.Inferences
+		notes = append(notes, d.Notes...)
+		if in.BaseURL == "" {
+			in.BaseURL = d.BaseURL
+		}
+		if in.DBDriver == "" {
+			in.DBDriver = d.DBDriver
+		}
+		if in.DBDSNEnv == "" && in.DBDriver != "" {
+			in.DBDSNEnv = d.DBDSNEnv
+		}
+		if in.RedisAddrEnv == "" {
+			in.RedisAddrEnv = d.RedisAddrEnv
+		}
+		if d.Import != nil && in.OpenAPIPath == "" && len(in.Paths) == 0 {
+			requests = d.Import.Requests
+			notes = append(notes, d.Import.Notes...)
+		}
+	}
+	if in.OpenAPIPath != "" {
+		if in.BaseURL == "" {
+			return nil, errs.New(errs.CodeOpsInvalidInput, "importing an OpenAPI document needs base_url").
+				WithHint("name the test environment's URL; a document's servers often name production, so they are never used by default")
+		}
+		data, err := os.ReadFile(in.OpenAPIPath)
+		if err != nil {
+			return nil, errs.Wrap(errs.CodeConfigNotFound, err, "reading the OpenAPI document %s", in.OpenAPIPath)
+		}
+		imp, err := detect.ImportOpenAPI(data, detect.OpenAPIOptions{})
+		if err != nil {
+			return nil, err
+		}
+		requests = imp.Requests
+		notes = append(notes, imp.Notes...)
+		if len(requests) == 0 {
+			notes = append(notes, "the OpenAPI document has no safe operations to import, so the starter loads /")
+		}
+	}
+
 	if in.BaseURL == "" {
-		return "", nil, errs.New(errs.CodeOpsInvalidInput, "base_url is required").
+		return nil, errs.New(errs.CodeOpsInvalidInput, "base_url is required").
 			WithHint("for example http://127.0.0.1:8080 or ${BASE_URL}")
 	}
 	rate := in.Rate
@@ -32,7 +83,7 @@ func Scaffold(in ScaffoldIn) (string, []string, error) {
 	}
 	d, err := time.ParseDuration(duration)
 	if err != nil || d <= 0 {
-		return "", nil, errs.New(errs.CodeOpsInvalidInput, "duration %q is not a positive duration", duration).
+		return nil, errs.New(errs.CodeOpsInvalidInput, "duration %q is not a positive duration", duration).
 			WithHint("use a Go duration such as 30s or 3m")
 	}
 	// Five seconds of warm-up, or a tenth of a run shorter than thirty.
@@ -40,14 +91,19 @@ func Scaffold(in ScaffoldIn) (string, []string, error) {
 	if d < 30*time.Second {
 		warmup = (d / 10).Truncate(100 * time.Millisecond)
 	}
-	paths := in.Paths
-	if len(paths) == 0 {
-		paths = []string{"/"}
-		notes = append(notes, "no paths were given, so the starter loads /; replace it with the endpoints that matter")
+	if len(requests) == 0 {
+		paths := in.Paths
+		if len(paths) == 0 {
+			paths = []string{"/"}
+			notes = append(notes, "no paths were given, so the starter loads /; replace it with the endpoints that matter")
+		}
+		for i, p := range paths {
+			requests = append(requests, detect.Request{Name: requestName(p, i), Method: "GET", URL: p})
+		}
 	}
 	for _, name := range []string{in.DBDSNEnv, in.RedisAddrEnv} {
 		if name != "" && !envName.MatchString(name) {
-			return "", nil, errs.New(errs.CodeOpsInvalidInput, "%q is not an environment variable name", name).
+			return nil, errs.New(errs.CodeOpsInvalidInput, "%q is not an environment variable name", name).
 				WithHint("pass the name, such as DATABASE_URL, not the value")
 		}
 	}
@@ -67,8 +123,11 @@ http:
   executor: { type: arrival-rate, rate: %s, max_in_flight: 64 }
   requests:
 `, duration, warmup, in.BaseURL, trimFloat(rate))
-	for i, p := range paths {
-		fmt.Fprintf(&b, "    - { name: %s, method: GET, url: %q }\n", requestName(p, i), p)
+	for _, r := range requests {
+		if r.Todo != "" {
+			fmt.Fprintf(&b, "    # TODO: %s\n", r.Todo)
+		}
+		fmt.Fprintf(&b, "    - { name: %s, method: %s, url: %q }\n", r.Name, r.Method, r.URL)
 	}
 
 	switch in.DBDriver {
@@ -92,7 +151,7 @@ http:
 			notes = append(notes, "SELECT 1 only shows that the database answers; a query on a table the application uses shows whether that table is contended")
 		}
 	default:
-		return "", nil, errs.New(errs.CodeOpsInvalidInput, "db_driver %q is not postgres, mysql or sqlite", in.DBDriver)
+		return nil, errs.New(errs.CodeOpsInvalidInput, "db_driver %q is not postgres, mysql or sqlite", in.DBDriver)
 	}
 
 	if in.RedisAddrEnv != "" {
@@ -116,7 +175,8 @@ http:
 		fmt.Fprintf(&b, "telemetry: { %s }   # server-side signals that corroborate a verdict\n", strings.Join(samplers, ", "))
 	}
 	notes = append(notes, "ask a human which targets and environments may be loaded before running this; never point it at production without explicit allowlisting")
-	return b.String(), notes, nil
+	out.ConfigYAML, out.Notes = b.String(), notes
+	return out, nil
 }
 
 func requestName(path string, i int) string {

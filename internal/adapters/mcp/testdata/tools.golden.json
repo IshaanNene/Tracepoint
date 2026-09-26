@@ -1292,12 +1292,12 @@
       "readOnlyHint": true,
       "title": "Write a starter configuration"
     },
-    "description": "Write a commented starter configuration for an application and, optionally, the database and Redis it uses, probing each storage tier alongside the application so a slowdown can be attributed. Use it when there is no configuration yet. It contacts nothing. Ask the human which targets and environments are allowed and what the SLOs are before running anything it produces.",
+    "description": "Write a commented starter configuration for an application and, optionally, the database and Redis it uses, probing each storage tier alongside the application so a slowdown can be attributed. It can infer these from a project directory (detect_dir) and import requests from an OpenAPI document (openapi_path). Use it when there is no configuration yet. It contacts nothing. Ask the human which targets and environments are allowed and what the SLOs are before running anything it produces.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "base_url": {
-          "description": "Base URL of the application under test, such as http://127.0.0.1:8080. Use an environment reference like ${BASE_URL} to keep hosts out of the file.",
+          "description": "Base URL of the application under test, such as http://127.0.0.1:8080. Use an environment reference like ${BASE_URL} to keep hosts out of the file. Required unless detect_dir is given.",
           "type": "string"
         },
         "db_driver": {
@@ -1317,8 +1317,16 @@
           "description": "The database probe's query. Defaults to SELECT 1, which sees the connection but none of the application's tables; a read the application itself performs is a far better probe.",
           "type": "string"
         },
+        "detect_dir": {
+          "description": "A project directory, relative to the server's, to infer the rest from: compose files for the database, cache and application port, environment files for variable names (never values), and an OpenAPI document for the requests. Explicit inputs win over what is detected.",
+          "type": "string"
+        },
         "duration": {
           "description": "Run length as a Go duration, such as 30s or 3m. Defaults to 30s.",
+          "type": "string"
+        },
+        "openapi_path": {
+          "description": "An OpenAPI 3 or Swagger 2 document, relative to the server's directory, to import requests from: safe methods only, with generators for path parameters and TODOs for anything uncertain. Needs base_url, because a document's servers often name production.",
           "type": "string"
         },
         "paths": {
@@ -1341,9 +1349,6 @@
           "type": "string"
         }
       },
-      "required": [
-        "base_url"
-      ],
       "type": "object"
     },
     "name": "scaffold_config",
@@ -1353,6 +1358,33 @@
         "config_yaml": {
           "description": "A commented starter configuration. Pass it to validate_config, then plan_run, before start_run.",
           "type": "string"
+        },
+        "inferences": {
+          "description": "What detection concluded from the project directory, each with its evidence and a confidence of high, medium or low. Confirm the low ones with the human.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "confidence": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "what": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "what",
+              "evidence",
+              "confidence"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
         },
         "notes": {
           "description": "What the starter assumed and what to check.",

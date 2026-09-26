@@ -249,29 +249,42 @@ func newInitCmd(env Env, g *globals) *cobra.Command {
 		Long: strings.TrimSpace(`
 Write a commented starter configuration for an application and, optionally, the database
 and Redis it uses, each probed alongside it. Connection strings are written as
-environment references, never values, so the file can be committed. It contacts nothing.`),
+environment references, never values, so the file can be committed. It contacts nothing.
+
+--detect DIR infers what it can from a project: compose files for the database, the
+cache and the application's port; environment files for variable names, never values;
+and an OpenAPI document for the requests. Each inference is printed with its evidence
+and a confidence. --from-openapi FILE imports requests from an OpenAPI 3 or Swagger 2
+document - safe methods only, generators for path parameters, TODOs for anything
+uncertain - and needs --base-url, because a document's servers often name production.
+Flags given explicitly win over anything detected.`),
 		Example: strings.TrimSpace(`
   tracepoint init --base-url http://127.0.0.1:8080 --path /api/items > tracepoint.yaml
-  tracepoint init --base-url '${BASE_URL}' --db postgres --db-dsn-env DATABASE_URL --redis-addr-env REDIS_ADDR --out tracepoint.yaml`),
+  tracepoint init --base-url '${BASE_URL}' --db postgres --db-dsn-env DATABASE_URL --redis-addr-env REDIS_ADDR --out tracepoint.yaml
+  tracepoint init --detect . --out tracepoint.yaml
+  tracepoint init --from-openapi api/openapi.yaml --base-url http://127.0.0.1:8080 --output json`),
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			yaml, notes, err := ops.Scaffold(in)
+			sc, err := ops.Scaffold(in)
 			if err != nil {
 				return err
 			}
 			if g.json() {
-				return writeJSON(env.Stdout, ops.ScaffoldOut{ConfigYAML: yaml, Notes: notes})
+				return writeJSON(env.Stdout, sc)
+			}
+			for _, inf := range sc.Inferences {
+				fmt.Fprintf(env.Stderr, "found: %s (%s confidence; %s)\n", inf.What, inf.Confidence, inf.Evidence)
+			}
+			for _, n := range sc.Notes {
+				fmt.Fprintln(env.Stderr, "note:", n)
 			}
 			if out != "" {
-				if werr := os.WriteFile(out, []byte(yaml), 0o600); werr != nil {
+				if werr := os.WriteFile(out, []byte(sc.ConfigYAML), 0o600); werr != nil {
 					return errs.Wrap(errs.CodeIOWriteFailed, werr, "writing %s", out)
-				}
-				for _, n := range notes {
-					fmt.Fprintln(env.Stderr, "note:", n)
 				}
 				return nil
 			}
-			_, err = io.WriteString(env.Stdout, yaml)
+			_, err = io.WriteString(env.Stdout, sc.ConfigYAML)
 			return err
 		},
 	}
@@ -283,6 +296,9 @@ environment references, never values, so the file can be committed. It contacts 
 	f.StringVar(&in.RedisAddrEnv, "redis-addr-env", "", "environment variable holding the Redis address; probes Redis too")
 	f.Float64Var(&in.Rate, "rate", 0, "application requests per second (default 20)")
 	f.StringVar(&in.Duration, "duration", "", "run length (default 30s)")
+	f.StringVar(&in.DBQuery, "db-query", "", "the database probe's query (default SELECT 1, which sees none of the application's tables)")
+	f.StringVar(&in.DetectDir, "detect", "", "infer the database, cache, application port and requests from this project directory")
+	f.StringVar(&in.OpenAPIPath, "from-openapi", "", "import requests from this OpenAPI 3 or Swagger 2 document (needs --base-url)")
 	f.StringVar(&out, "out", "", "write the configuration here instead of stdout")
 	return cmd
 }

@@ -1,0 +1,28 @@
+openapi: 3.0.3
+info: { title: Shop }
+servers: [{ url: https://api.shop.example }]
+security: [{ bearer: [] }]
+components:
+  parameters:
+    ItemId: { name: id, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 500 } }
+paths:
+  /items:
+    get: { operationId: listItems, security: [] }
+    post: { operationId: createItem }
+  /items/{id}:
+    parameters: [{ $ref: "#/components/parameters/ItemId" }]
+    get: { operationId: getItem }
+    delete: {}
+  /users/{uid}:
+    get:
+      parameters: [{ name: uid, in: path, required: true, schema: { type: string, format: uuid } }]
+  /search:
+    get:
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: sort, in: query, required: true, schema: { type: string, enum: [asc, desc] } }
+  /legacy:
+    get: { deprecated: true }
+  /orders/{orderId}/lines:
+    get: {}

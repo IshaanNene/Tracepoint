@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/IshaanNene/Tracepoint/internal/detect"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
 	"github.com/IshaanNene/Tracepoint/internal/plan"
 	"github.com/IshaanNene/Tracepoint/internal/policy"
@@ -53,7 +54,7 @@ func getPolicy() Operation {
 
 // ScaffoldIn describes the system to write a starter configuration for.
 type ScaffoldIn struct {
-	BaseURL      string   `json:"base_url" jsonschema:"Base URL of the application under test, such as http://127.0.0.1:8080. Use an environment reference like ${BASE_URL} to keep hosts out of the file."`
+	BaseURL      string   `json:"base_url,omitempty" jsonschema:"Base URL of the application under test, such as http://127.0.0.1:8080. Use an environment reference like ${BASE_URL} to keep hosts out of the file. Required unless detect_dir is given."`
 	Paths        []string `json:"paths,omitempty" jsonschema:"Request paths to load, such as /api/items. Safe (read-only) endpoints only unless a human has said writes are fine. Defaults to /."`
 	DBDriver     string   `json:"db_driver,omitempty" jsonschema:"Database to probe alongside: postgres, mysql or sqlite. Omit for none."`
 	DBDSNEnv     string   `json:"db_dsn_env,omitempty" jsonschema:"Name of the environment variable holding the database DSN, such as DATABASE_URL. The file references it; the value is never written."`
@@ -61,12 +62,15 @@ type ScaffoldIn struct {
 	Rate         float64  `json:"rate,omitempty" jsonschema:"Application requests per second. Defaults to 20; start low and raise it once a smoke run is valid."`
 	Duration     string   `json:"duration,omitempty" jsonschema:"Run length as a Go duration, such as 30s or 3m. Defaults to 30s."`
 	DBQuery      string   `json:"db_query,omitempty" jsonschema:"The database probe's query. Defaults to SELECT 1, which sees the connection but none of the application's tables; a read the application itself performs is a far better probe."`
+	DetectDir    string   `json:"detect_dir,omitempty" jsonschema:"A project directory, relative to the server's, to infer the rest from: compose files for the database, cache and application port, environment files for variable names (never values), and an OpenAPI document for the requests. Explicit inputs win over what is detected."`
+	OpenAPIPath  string   `json:"openapi_path,omitempty" jsonschema:"An OpenAPI 3 or Swagger 2 document, relative to the server's directory, to import requests from: safe methods only, with generators for path parameters and TODOs for anything uncertain. Needs base_url, because a document's servers often name production."`
 }
 
 // ScaffoldOut is a starter configuration.
 type ScaffoldOut struct {
-	ConfigYAML string   `json:"config_yaml" jsonschema:"A commented starter configuration. Pass it to validate_config, then plan_run, before start_run."`
-	Notes      []string `json:"notes,omitempty" jsonschema:"What the starter assumed and what to check."`
+	ConfigYAML string             `json:"config_yaml" jsonschema:"A commented starter configuration. Pass it to validate_config, then plan_run, before start_run."`
+	Notes      []string           `json:"notes,omitempty" jsonschema:"What the starter assumed and what to check."`
+	Inferences []detect.Inference `json:"inferences,omitempty" jsonschema:"What detection concluded from the project directory, each with its evidence and a confidence of high, medium or low. Confirm the low ones with the human."`
 }
 
 func (o *ScaffoldOut) summary() string { return "wrote a starter configuration; validate it next" }
@@ -76,15 +80,24 @@ func scaffoldConfig() Operation {
 		Name:  "scaffold_config",
 		Title: "Write a starter configuration",
 		Description: "Write a commented starter configuration for an application and, optionally, the database and Redis it uses, probing each storage tier alongside the application so a slowdown can be attributed. " +
+			"It can infer these from a project directory (detect_dir) and import requests from an OpenAPI document (openapi_path). " +
 			"Use it when there is no configuration yet. It contacts nothing. Ask the human which targets and environments are allowed and what the SLOs are before running anything it produces.",
 		Annotations: Annotations{ReadOnly: true, Idempotent: true},
 		CLI:         "init",
-	}, func(_ context.Context, _ *Service, in *ScaffoldIn) (*ScaffoldOut, error) {
-		yaml, notes, err := Scaffold(*in)
-		if err != nil {
-			return nil, err
+	}, func(_ context.Context, s *Service, in *ScaffoldIn) (*ScaffoldOut, error) {
+		req := *in
+		// Files are read only inside the server's directory, as config_path is.
+		for _, p := range []*string{&req.DetectDir, &req.OpenAPIPath} {
+			if *p == "" {
+				continue
+			}
+			abs, err := s.confine(*p)
+			if err != nil {
+				return nil, err
+			}
+			*p = abs
 		}
-		return &ScaffoldOut{ConfigYAML: yaml, Notes: notes}, nil
+		return Scaffold(req)
 	}, func(in, _ *jsonschema.Schema) {
 		in.Properties["db_driver"].Enum = []any{"postgres", "mysql", "sqlite"}
 		in.Properties["rate"].Minimum = ptr(0.0)

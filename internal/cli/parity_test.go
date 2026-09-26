@@ -165,3 +165,36 @@ func TestInit(t *testing.T) {
 		t.Fatalf("an unknown driver: %d %s", r.code, r.stderr)
 	}
 }
+
+// init --detect reports what it inferred and why; --from-openapi needs a base URL.
+func TestInitDetects(t *testing.T) {
+	shop := filepath.Join("..", "detect", "testdata", "shop")
+	r := exec(t, "init", "--detect", shop)
+	if r.code != 0 {
+		t.Fatalf("init --detect: %d %s", r.code, r.stderr)
+	}
+	for _, want := range []string{"found: a Postgres database", "found: a Redis cache"} {
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, r.stderr)
+		}
+	}
+	if !strings.Contains(r.stdout, "driver: postgres") || !strings.Contains(r.stdout, "# TODO:") {
+		t.Fatalf("configuration:\n%s", r.stdout)
+	}
+	r = exec(t, "init", "--detect", shop, "--output", "json")
+	var sc struct {
+		ConfigYAML string `json:"config_yaml"`
+		Inferences []struct{ What, Evidence, Confidence string }
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &sc); err != nil || sc.ConfigYAML == "" || len(sc.Inferences) == 0 {
+		t.Fatalf("json: %v %s", err, r.stdout)
+	}
+
+	spec := filepath.Join(shop, "api", "openapi.yaml")
+	if r := exec(t, "init", "--from-openapi", spec); r.code != errs.ExitUsage {
+		t.Fatalf("an import without a base URL: %d %s", r.code, r.stderr)
+	}
+	if r := exec(t, "init", "--from-openapi", spec, "--base-url", "http://127.0.0.1:8080"); r.code != 0 || !strings.Contains(r.stdout, "method: GET") {
+		t.Fatalf("import: %d %s %s", r.code, r.stdout, r.stderr)
+	}
+}

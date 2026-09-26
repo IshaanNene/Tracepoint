@@ -357,3 +357,51 @@ func TestSummaries(t *testing.T) {
 		t.Fatalf("summary = %q", s)
 	}
 }
+
+// scaffold_config reads a project directory and an OpenAPI document only inside the
+// server's directory, and what it produces validates.
+func TestScaffoldDetects(t *testing.T) {
+	h := newHarness(t)
+	if err := os.CopyFS(filepath.Join(h.dir, "shop"), os.DirFS("../detect/testdata/shop")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := call(t, h, "scaffold_config", map[string]any{"detect_dir": "shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := out.(*ops.ScaffoldOut)
+	if len(sc.Inferences) == 0 {
+		t.Fatal("no inferences")
+	}
+	for _, want := range []string{"driver: postgres", "${DATABASE_URL}", "${REDIS_ADDR}", "# TODO:", "http://127.0.0.1:8080"} {
+		if !strings.Contains(sc.ConfigYAML, want) {
+			t.Errorf("starter lacks %q:\n%s", want, sc.ConfigYAML)
+		}
+	}
+	h.svc.Lookup = func(k string) (string, bool) {
+		v, ok := map[string]string{"DATABASE_URL": "postgres://u@127.0.0.1/app", "REDIS_ADDR": "127.0.0.1:6379"}[k]
+		return v, ok
+	}
+	if _, err = call(t, h, "validate_config", map[string]any{"config": sc.ConfigYAML}); err != nil {
+		t.Fatalf("the detected starter does not validate: %v\n%s", err, sc.ConfigYAML)
+	}
+
+	out, err = call(t, h, "scaffold_config", map[string]any{"openapi_path": "shop/api/openapi.yaml", "base_url": h.srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if y := out.(*ops.ScaffoldOut).ConfigYAML; !strings.Contains(y, "method: GET") || strings.Contains(y, "method: POST") {
+		t.Fatalf("imported starter:\n%s", y)
+	}
+	if _, err := call(t, h, "scaffold_config", map[string]any{"openapi_path": "shop/api/openapi.yaml"}); code(err) != errs.CodeOpsInvalidInput {
+		t.Fatalf("an import without base_url: %v", err)
+	}
+	for _, in := range []map[string]any{
+		{"detect_dir": "../"},
+		{"openapi_path": "../../etc/passwd", "base_url": h.srv.URL},
+	} {
+		if _, err := call(t, h, "scaffold_config", in); err == nil {
+			t.Fatalf("%v escaped the server's directory", in)
+		}
+	}
+}

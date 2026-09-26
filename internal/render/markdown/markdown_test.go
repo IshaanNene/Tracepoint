@@ -108,3 +108,11 @@ func TestIncidentTableIsBounded(t *testing.T) {
 		t.Fatalf("incidents:\n%s", out)
 	}
 }
+
+func TestStrainIsSummarised(t *testing.T) {
+	r := dbIncident()
+	r.Analysis.Strain = &result.Strain{Found: false, Users: 25, RPS: 240, Message: "no strain up to ~25 users (~240 req/s)"}
+	if out := render(t, r, markdown.Options{}); !strings.Contains(out, "**Strain:** no strain up to \\~25 users") {
+		t.Fatalf("markdown:\n%s", out)
+	}
+}

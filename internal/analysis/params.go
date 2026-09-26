@@ -57,6 +57,15 @@ type Params struct {
 	// StallServiceFactor is how many times the pause a tier's service-time rise must
 	// exceed, over its threshold, to be the target moving rather than the pause.
 	StallServiceFactor float64
+	// StrainFactor, StrainRun and StrainEarly* define the strain finder (§5.5.8): p99
+	// above StrainFactor times the median of the early buckets - the first
+	// StrainEarlyShare of them, clamped to [StrainEarlyMin, StrainEarlyMax] - for
+	// StrainRun consecutive buckets.
+	StrainFactor     float64
+	StrainRun        int
+	StrainEarlyShare float64
+	StrainEarlyMin   int
+	StrainEarlyMax   int
 }
 
 // DefaultParams are the values the specification fixes (§5.5).
@@ -82,6 +91,11 @@ func DefaultParams() Params {
 		StallMinRunners:    2,
 		StallMaxBuckets:    2,
 		StallServiceFactor: 10,
+		StrainFactor:       2,
+		StrainRun:          3,
+		StrainEarlyShare:   0.1,
+		StrainEarlyMin:     5,
+		StrainEarlyMax:     30,
 	}
 }
 

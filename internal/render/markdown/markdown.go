@@ -76,6 +76,9 @@ func Render(w io.Writer, r *result.Result, opts Options) error {
 		}
 		b.WriteString("\n")
 	}
+	if s := a.Strain; s != nil {
+		fmt.Fprintf(b, "**Strain:** %s\n\n", esc(s.Message))
+	}
 	caveat := result.StandingCaveat
 	if v.Caveat != "" && v.Caveat != caveat {
 		caveat = v.Caveat + " " + caveat

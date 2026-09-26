@@ -687,6 +687,34 @@
                         "additionalProperties": false
                       }
                     },
+                    "strain": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "found": {
+                          "type": "boolean"
+                        },
+                        "users": {
+                          "type": "number"
+                        },
+                        "rps": {
+                          "type": "number"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "next_window": true
+                      },
+                      "required": [
+                        "found",
+                        "users",
+                        "rps",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    },
                     "recommendations": {
                       "type": [
                         "null",
@@ -2521,6 +2549,34 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "strain": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "properties": {
+                            "found": {
+                              "type": "boolean"
+                            },
+                            "users": {
+                              "type": "number"
+                            },
+                            "rps": {
+                              "type": "number"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "next_window": true
+                          },
+                          "required": [
+                            "found",
+                            "users",
+                            "rps",
+                            "message"
+                          ],
+                          "additionalProperties": false
                         },
                         "recommendations": {
                           "type": [

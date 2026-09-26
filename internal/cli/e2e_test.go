@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -652,5 +653,56 @@ http:
 	plan := exec(t, "run", "-c", cfg, "--dry-run")
 	if plan.code != 0 || !strings.Contains(plan.stdout, "users") {
 		t.Fatalf("plan: %s", plan.stdout)
+	}
+}
+
+// A ramp against a target that degrades partway through finds where strain began,
+// and the digest carries it with the window a capacity search should cover.
+func TestStrainOnARamp(t *testing.T) {
+	var first atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		now := time.Now().UnixNano()
+		first.CompareAndSwap(0, now)
+		if time.Duration(now-first.Load()) > 6*time.Second {
+			time.Sleep(40 * time.Millisecond)
+		} else {
+			time.Sleep(time.Millisecond)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	cfg := writeConfig(t, fmt.Sprintf(`
+version: 1
+run: { duration: 10s, bucket: 1s, seed: 3, timeout: 2s, min_samples: 5 }
+http:
+  base_url: %q
+  executor: { stages: [{ duration: 10s, target: 120 }], max_in_flight: 64 }
+  requests: [{ name: items, url: /items }]
+`, srv.URL))
+	root := runRoot(t)
+	r := exec(t, "run", "-c", cfg, "--output", "json", "--log-level", "error")
+	if r.code != errs.ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	doc := validateAgainst(t, compileSchema(t, "result"), r.stdout, "result.json")
+	strain, _ := doc["analysis"].(map[string]any)["strain"].(map[string]any)
+	if strain == nil || strain["found"] != true {
+		t.Fatalf("strain = %v", strain)
+	}
+	if at := strain["at_offset_s"].(float64); at < 5 || at > 8 {
+		t.Fatalf("strain found at %vs; the target slowed at 6s", at)
+	}
+
+	var id string
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		if e.IsDir() {
+			id = e.Name()
+		}
+	}
+	d := exec(t, "digest", id)
+	digest := validateAgainst(t, compileSchema(t, "digest"), d.stdout, "digest")
+	ds, _ := digest["strain"].(map[string]any)
+	if ds == nil || ds["found"] != true || ds["next_window"] == nil {
+		t.Fatalf("digest strain = %v", ds)
 	}
 }

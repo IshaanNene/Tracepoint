@@ -11,7 +11,7 @@ import (
 )
 
 // DigestSchemaVersion is the version of the digest document's shape.
-const DigestSchemaVersion = "1.0"
+const DigestSchemaVersion = "1.1"
 
 // DefaultDigestBudget is the character budget a digest is cut to when none is given:
 // small enough to read in full inside a context window, large enough to carry a
@@ -37,10 +37,21 @@ type Digest struct {
 	Runners         []DigestRunner      `json:"runners,omitempty"`
 	Correlation     []DigestCorrelation `json:"correlation,omitempty"`
 	Telemetry       []DigestTelemetry   `json:"telemetry,omitempty"`
+	Strain          *DigestStrain       `json:"strain,omitempty"`
 	Recommendations []Recommendation    `json:"recommendations,omitempty"`
 	Artifacts       *DigestArtifacts    `json:"artifacts,omitempty"`
 	Truncated       bool                `json:"truncated"`
 	More            *DigestMore         `json:"more,omitempty"`
+}
+
+// DigestStrain is where latency started to degrade on a ramping run, and the range a
+// follow-up capacity search should cover.
+type DigestStrain struct {
+	Found      bool    `json:"found"`
+	Users      float64 `json:"users"`
+	RPS        float64 `json:"rps"`
+	Message    string  `json:"message"`
+	NextWindow any     `json:"next_window,omitempty"`
 }
 
 // DigestValidity is whether the run can be believed.
@@ -250,6 +261,9 @@ func fullDigest(r *Result) *Digest {
 		d.Correlation = append(d.Correlation, DigestCorrelation{Storage: c.Storage, Rho: c.Rho, LagBuckets: c.BestLag, NBuckets: c.NBuckets})
 	}
 	d.Telemetry = digestTelemetry(r)
+	if s := a.Strain; s != nil {
+		d.Strain = &DigestStrain{Found: s.Found, Users: s.Users, RPS: s.RPS, Message: s.Message, NextWindow: s.NextWindow}
+	}
 	d.Recommendations = Recommend(r)
 
 	if art := r.Artifacts; art != nil {
@@ -417,6 +431,13 @@ func fit(d *Digest, budget int, ref, runID string) {
 	}{
 		{"telemetry", func() bool { return drop(&d.Telemetry) }},
 		{"correlation", func() bool { return drop(&d.Correlation) }},
+		{"strain", func() bool {
+			if d.Strain == nil {
+				return false
+			}
+			d.Strain = nil
+			return true
+		}},
 		{"incidents beyond the top 3", func() bool { return trim(&d.Incidents, 3) }},
 		{"verdict evidence beyond the first 3", func() bool { return trim(&d.Verdict.Evidence, 3) }},
 		{"runner error breakdowns", func() bool {

@@ -80,6 +80,7 @@ func Analyse(r *result.Result, in Inputs) result.Analysis {
 		sort.SliceStable(a.Correlation, func(i, j int) bool { return a.Correlation[i].Storage < a.Correlation[j].Storage })
 	}
 
+	a.Strain = findStrain(r, p)
 	a.Verdict = buildVerdict(r, a, views, p)
 	return a
 }

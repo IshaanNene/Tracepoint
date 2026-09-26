@@ -74,6 +74,7 @@
   {{end}}
   {{if .Caveat}}<p class="caveat">{{.Caveat}}</p>{{end}}
   {{end}}
+  {{with .R.Analysis.Strain}}<p class="strain"><strong>{{if .Found}}Strain:{{else}}No strain:{{end}}</strong> {{.Message}}.</p>{{end}}
   {{if ne .R.Analysis.Verdict.Caveat .StandingCaveat}}<p class="caveat">{{.StandingCaveat}}</p>{{end}}
 </section>
 

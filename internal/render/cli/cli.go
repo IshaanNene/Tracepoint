@@ -72,6 +72,7 @@ func Render(w io.Writer, r *result.Result, opts Options) error {
 	}
 	writeIncidents(b, p, r)
 	writeVerdict(b, p, r, opts)
+	writeStrain(b, p, r, opts)
 	writeArtifacts(b, p, r)
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
@@ -336,6 +337,20 @@ func writeVerdict(b *strings.Builder, p painter, r *result.Result, opts Options)
 		fmt.Fprintf(b, "    %s %s\n", p.paint(cyan, "→"), wrap(s, opts.Width-6, "      "))
 	}
 	b.WriteString("\n")
+}
+
+// writeStrain reports, on a ramping run, the load at which latency began to degrade.
+func writeStrain(b *strings.Builder, p painter, r *result.Result, opts Options) {
+	s := r.Analysis.Strain
+	if s == nil {
+		return
+	}
+	colour := green
+	if s.Found {
+		colour = yellow
+	}
+	fmt.Fprintf(b, "  %s %s\n\n", p.paint(bold, pad("STRAIN", labelWidth)),
+		p.paint(colour, wrap(s.Message, opts.Width-labelWidth-4, strings.Repeat(" ", labelWidth+3))))
 }
 
 func writeArtifacts(b *strings.Builder, p painter, r *result.Result) {

@@ -462,6 +462,34 @@
         "status": {
           "type": "string"
         },
+        "strain": {
+          "additionalProperties": false,
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "message": {
+              "type": "string"
+            },
+            "next_window": true,
+            "rps": {
+              "type": "number"
+            },
+            "users": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "found",
+            "users",
+            "rps",
+            "message"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
         "telemetry": {
           "items": {
             "additionalProperties": false,
@@ -1887,6 +1915,34 @@
             },
             "status": {
               "type": "string"
+            },
+            "strain": {
+              "additionalProperties": false,
+              "properties": {
+                "found": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "next_window": true,
+                "rps": {
+                  "type": "number"
+                },
+                "users": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "found",
+                "users",
+                "rps",
+                "message"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
             },
             "telemetry": {
               "items": {

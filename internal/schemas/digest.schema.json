@@ -7,7 +7,7 @@
   "required": ["schema_version", "run_id", "status", "validity", "slo", "verdict"],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "description": "Version of this document's shape, MAJOR.MINOR.", "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "examples": ["1.0"] },
+    "schema_version": { "description": "Version of this document's shape, MAJOR.MINOR.", "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "examples": ["1.1"] },
     "run_id": { "description": "The run this digest describes.", "type": "string", "examples": ["20260919T210000Z-a1b2c3"] },
     "run_name": { "description": "Human label given to the run, when one was set.", "type": "string" },
     "status": { "description": "How the run ended. Anything other than completed means the data is partial.", "enum": ["completed", "interrupted", "aborted", "failed"] },
@@ -179,7 +179,17 @@
         "found": { "type": "boolean" },
         "users": { "type": "number" },
         "rps": { "type": "number" },
-        "message": { "type": "string", "examples": ["strain begins at ~180 users (~420 req/s)"] }
+        "message": { "type": "string", "examples": ["strain begins at ~180 users (~420 req/s)"] },
+        "next_window": {
+          "description": "The range a follow-up capacity search should cover, in the knob's units. Added in 1.1.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "knob": { "enum": ["rate", "concurrency"] },
+            "from": { "type": "number", "minimum": 0 },
+            "to": { "type": "number", "minimum": 0 }
+          }
+        }
       }
     },
 

@@ -274,3 +274,15 @@ func TestRenderIncidents(t *testing.T) {
 	r := b.Analysed(analysis.Inputs{})
 	golden(t, "incidents", render(t, r, clirender.Options{}))
 }
+
+// A ramping run says where strain began, and a run without one says nothing about it.
+func TestStrainLine(t *testing.T) {
+	r := resulttest.NewRun(30).Analysed(analysis.Inputs{})
+	if out := render(t, r, clirender.Options{}); strings.Contains(out, "STRAIN") {
+		t.Fatal("a constant run printed a strain line")
+	}
+	r.Analysis.Strain = &result.Strain{Found: true, Users: 31, RPS: 300, Message: "strain begins at ~31 users (~300 req/s)"}
+	if out := render(t, r, clirender.Options{}); !strings.Contains(out, "STRAIN") || !strings.Contains(out, "~31 users") {
+		t.Fatalf("no strain line:\n%s", out)
+	}
+}

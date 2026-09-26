@@ -84,6 +84,23 @@ see what was left out.
 - Capacity search (§5.6) drives either executor through the same knob abstraction:
   `rate` for open, `concurrency` for closed.
 
+## Implementation notes (phase 6)
+
+Choices the decision above left open, made when the closed model and journeys were
+built. The rules themselves are in [`METHODOLOGY.md`](../METHODOLOGY.md).
+
+- The `vus` executor re-reads its target user count every 100ms and rounds it. Users
+  retire between iterations, never mid-journey.
+- The first step of a journey is timed from the iteration's intended send time and
+  later steps from their actual start, so lateness is charged once.
+- Think time runs between steps only; a pause after the last step would idle a
+  closed-model user without modelling anything.
+- Cookie jars follow the model: one per virtual user for the run under `vus`; one per
+  iteration under `arrival-rate`, and none at all for single-step journeys, which
+  cannot carry a cookie anywhere. `http.cookies: false` turns them off.
+- A `unique` feeder that runs out fails the step as `extract_failed`: the step cannot
+  be given the value its configuration promised, which is exactly that class.
+
 ## Alternatives considered
 
 - **Open model only.** Simpler, and wrong for a fixed client pool: it would report a

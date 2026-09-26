@@ -17,6 +17,19 @@ before it is removed in the next major.
 
 ### Added
 
+- Phase 6: journeys and onboarding. Multi-step HTTP journeys with `extract` (gjson
+  paths), `expect` (status sets, JSON-path equals and exists, body size), per-step
+  timeouts, think time, cookie jars and CSV feeders, checked at load time so that no
+  step reads a variable nothing extracted. `http.traceparent` sends W3C trace context.
+  The closed-model `vus` executor with `pick: per-iteration` or `per-vu`. The strain
+  finder: on a ramping run, "strain begins at ~N users (~R req/s)" and the next
+  capacity window, in the result, the digest and every report. `tracepoint quick
+  <url>`, a zero-configuration smoke test that probes a database and Redis on the same
+  clock. `init --detect <dir>` infers a starter configuration from compose files,
+  environment variable names and OpenAPI documents, with evidence and confidence for
+  each inference; `init --from-openapi` imports safe requests from an OpenAPI or
+  Swagger document. `scaffold_config` accepts `detect_dir` and `openapi_path`. The
+  digest's `caveats` include `PROBE_TRIVIAL` for a `SELECT 1` probe.
 - Phase 5: human interfaces. Every run writes `report.html`: one file that opens
   offline, with a strict Content-Security-Policy, the verdict, incidents, a shared
   timeline with quantile and response/service toggles and shaded warm-up, ramps and
@@ -64,6 +77,8 @@ before it is removed in the next major.
 
 ### Fixed
 
+- `executor.type: vus` ran the open model at the user count as a rate.
+- `http.traceparent: true` was accepted and ignored.
 - A generator paused by its host (a virtualised machine's steal time) no longer
   shows up as an incident: such buckets are set aside and reported as
   `GENERATOR_STALL`.
@@ -75,6 +90,8 @@ before it is removed in the next major.
 
 ### Changed
 
+- Digest schema 1.1: `strain.next_window` and `caveats`.
+- `scaffold_config` no longer requires `base_url` when `detect_dir` supplies one.
 - Result schema 1.1: `executor.start_target` records where a load profile starts.
 - Progress counts completed operations as they complete, rather than once their
   bucket seals.

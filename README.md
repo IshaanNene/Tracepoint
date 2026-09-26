@@ -39,15 +39,17 @@ input and output.
 
 ## Status
 
-**Phase 5 of 8 complete: the engine, the analysis, and both the agent and the human
-interfaces work.** TracePoint runs HTTP, SQL (Postgres, MySQL, SQLite) and Redis load
+**Phase 6 of 8 complete: the engine, the analysis, both the agent and the human
+interfaces, journeys and onboarding work.** TracePoint runs HTTP, SQL (Postgres, MySQL, SQLite) and Redis load
 on one clock, samples the datastores' own telemetry, and reports incidents, a verdict
 with evidence and confidence, and a context-sized digest for agents. A known-answer
 suite injects faults into a demo application and checks that every verdict class comes
 out right. Agents drive it over MCP, REST or the shell; people get a live terminal
 view and an offline HTML report for every run, with Markdown and JUnit one command
-away. Journeys, capacity search and `compare` are the phases still to come, and there
-is no release yet.
+away. Multi-step journeys run under an open or a closed load model, ramping runs say
+where strain begins, and `quick`, `init --detect` and `init --from-openapi` get a
+project to its first run. Capacity search and `compare` are the phases still to come,
+and there is no release yet.
 
 | What exists | Where |
 | --- | --- |

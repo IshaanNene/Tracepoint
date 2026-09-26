@@ -7,9 +7,9 @@ place — `analysis.DefaultParams()` — and every rule is a pure function of
 The reasoning behind the choices is in [ADR-005](adr/005-correlation-methodology.md);
 this file is the reference.
 
-> Sections still to come, with the phase that builds what they describe: open versus
-> closed models and the strain finder (6), capacity search and the Universal
-> Scalability Law (7), compare's quantile confidence intervals (7).
+> Sections still to come, with the phase that builds what they describe: capacity
+> search and the Universal Scalability Law (7), compare's quantile confidence
+> intervals (7).
 
 ## What the tool can claim
 
@@ -34,6 +34,48 @@ connection, and finished. Three durations follow:
 Hot buckets are judged on **service time**, so time spent queueing inside the
 generator is never charged to a database. SLOs are judged on **response time**,
 because that is what was promised to users.
+
+## Open and closed models
+
+Two executors answer two different questions ([ADR-003](adr/003-executors-and-desugaring.md)).
+
+**`arrival-rate` (open).** Arrivals follow a schedule whatever the target does, so
+offered load is an input. Each iteration's intended send time comes from the
+schedule, which is what makes `response_time` coordinated-omission correct.
+
+**`vus` (closed).** A population of virtual users, each running one iteration after
+another as fast as the target answers. The stages set the number of users: every
+100ms the executor reads the profile, rounds it to a whole number of users, and
+starts or retires users to match. A user being retired finishes its current
+iteration first. Offered load is an output: when the target slows, each user waits,
+and the population offers less - exactly as a fixed pool of real clients would.
+
+There is no schedule in a closed model, so there is nothing to have been late
+against: an iteration's intended time is the moment its user starts it. Under `vus`,
+`response_time` and `service_time` therefore differ only by the pool wait inside the
+generator, and neither can be coordinated-omission corrected. That is a property of
+the model, not a defect. SLOs judged on a closed run say "users of a pool this size
+saw this"; they do not say what an open stream of the same average rate would see.
+
+When the profile ends, users stop starting iterations, those mid-iteration have
+`run.grace` to finish, and anything still running is recorded as `canceled`.
+
+## Journeys
+
+`http.requests` is sugar for single-step journeys, so both run through one engine.
+Timing and failure within a journey:
+
+| Rule | Why |
+| --- | --- |
+| The first step is timed from the iteration's intended send time; each later step from the moment it actually starts | A late journey is charged once, to its first step, instead of compounding its lateness into every step after it |
+| Think time is a pause between steps, never after the last one, and is in no latency | Think time models a person reading; it is not the target's time |
+| A step that fails - an error, an unexpected status, a failed `expect` - ends the iteration | The steps after it would act on a response that did not arrive, and their failures would be noise |
+| Extraction reads only successful responses; a value that is missing fails the step as `extract_failed` | A literal `{{token}}` is never sent |
+| A `unique` feeder that runs out fails the step as `extract_failed`, logged once | The configuration asked for no reuse; repeating a row silently would break that promise |
+| Cookies are kept per virtual user for the whole run under `vus`; under `arrival-rate`, per iteration, and only for journeys of more than one step | A closed-model user is a session; an open-model arrival is a new visitor |
+
+Every step is its own label, `journey/step`, with its own sketches and thresholds; a
+request's label is its name. There is no journey-level latency series.
 
 ## Buckets and evidence
 
@@ -277,6 +319,36 @@ cleanly — a staged profile has no single rate to override, so rate advice ther
 | `configure-slo` | verdict none with no budgets | configure |
 | `raise-load` | verdict none | rerun at twice the rate |
 | `separate-generator-host`, `dedicated-generator-host`, `exempt-rate-limiter` | `SAME_HOST_TARGET`, `GENERATOR_STALL`, `RATE_LIMITED` | configure |
+
+## Strain
+
+On a run whose application load ramps - its stages change level - the strain finder
+reports where the application starts to struggle. It reads the application runner's
+eligible buckets (not warm-up, not insufficient):
+
+1. **Early baseline**: the median p99 service time of the first 10% of eligible
+   buckets, at least 5 and at most 30.
+2. **Strain**: the first 3 consecutive eligible buckets after the baseline whose p99
+   service time is more than 2× that baseline.
+3. **Load at strain**: the first strained bucket's measured peak in-flight count
+   ("users") and its throughput ("req/s"). These are what was measured, not what the
+   stages asked for, so a generator that fell behind cannot overstate them.
+
+Found, it reports *"strain begins at ~N users (~R req/s)"*, and recommends the next
+capacity window around that point: from half the level to one and a half times it,
+in requests per second for an open run or users for a closed one. Not found, it
+reports *"no strain up to ~N users"*, and the next window runs from the highest level
+reached to twice it. Too few eligible buckets for a baseline and a run of three, and
+the finder says nothing.
+
+| Constant | Value |
+| --- | --- |
+| Early share, minimum, maximum | 10%, 5, 30 buckets |
+| Strain factor | 2× the early baseline |
+| Sustained for | 3 consecutive buckets |
+
+Service time rather than response time is judged, as for hot buckets, so a generator
+that queues cannot manufacture strain.
 
 ## The known-answer suite
 

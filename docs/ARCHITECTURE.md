@@ -86,10 +86,11 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `internal/cli` | The cobra command tree. An adapter: it parses flags, calls the core and maps outcomes to exit codes |
 | `internal/clock` | `Clock` interface, real and fake. Nothing else reads `time.Now` |
 | `internal/schedule` | Rate stages, `Λ` and `Λ⁻¹`, uniform and Poisson arrivals (ADR-001) |
-| `internal/executor` | Open (arrival-rate) and closed (vus) models (ADR-003) |
-| `internal/config` | Load, interpolate, strict-decode, default, validate, `--set`, redact |
+| `internal/executor` | Open (arrival-rate) and closed (vus) models behind one `Executor` interface (ADR-003) |
+| `internal/config` | Load, interpolate, strict-decode, default, validate, `--set`, redact; the static dataflow check (every `{{var}}` extracted by an earlier step, every feeder declared) and the configuration caveats |
 | `internal/policy` | The human-granted envelope; tighten-only merge; target classification (ADR-006) |
-| `internal/template` | The mini-template language, compiled once, with a static dataflow check |
+| `internal/template` | The mini-template language and its generators, compiled once |
+| `internal/runner` | The runner interface, sessions and weighted picking. `httprun`: requests and journeys - extract (gjson), expect, think time, cookie jars, CSV feeders, traceparent. `sqlrun` and `redisrun`: the storage runners, which are probes as well as load |
 | `internal/metrics` | Outcome model, error taxonomy, sketches, sharded recorders, bucket sealing (ADR-002) |
 | `internal/telemetry` | The sampler registry and loop; samplers for the generator, Postgres, MySQL and Redis. Each runs on its own goroutine and connection so a stalled datastore stalls only its own sampler |
 | `internal/analysis` | Hot buckets, incidents, culprits, lagged correlation, verdicts, validity, SLOs, strain (ADR-005). Pure functions of `result.json`; the rules and constants are in [`METHODOLOGY.md`](METHODOLOGY.md) |
@@ -106,7 +107,7 @@ time, in the same words. That is what makes it testable and what makes it audita
 | `docs` (Go package) | Embeds `METHODOLOGY.md` and `ERRORS.md`, which the MCP server offers as resources |
 | `internal/render/{cli,html,markdown,junit}` | Pure functions of `result.json`. `render` itself holds the number formatting they share; `render/report` names the report formats and dispatches to them for `report` and `render_report` |
 | `internal/live` | The live terminal view: a pure Bubble Tea model and the driver that draws it on stderr |
-| `internal/detect` | Project detection and OpenAPI import |
+| `internal/detect` | Project detection (compose files, environment variable names, OpenAPI documents), each inference with evidence and a confidence, and OpenAPI import. Behind `init --detect`, `init --from-openapi` and `scaffold_config` |
 | `internal/schemas` | The JSON Schemas themselves. They live inside the package because `go:embed` cannot reach outside it, which is what guarantees the binary ships the contract it enforces |
 | `internal/buildinfo` | Version stamped at link time |
 | `internal/schemas/schematest` | Validates an emitted document against its embedded contract; imported only by tests |

@@ -13,10 +13,98 @@
 | 2 | Storage and safety: SQL and Redis runners, templates, `--set`, policy, guards, redaction, preflight, `doctor`, `--dry-run` | Complete, approved |
 | 3 | Analysis: telemetry samplers, incidents, culprits, correlation, verdicts, validity, digest; faultbox and the known-answer suite | Complete, approved |
 | 4 | Agent interfaces: run store, detach, events, audit log, ops registry, `capabilities`, MCP, REST, parity tests | Complete, approved |
-| 5 | Human interfaces: HTML, Markdown, JUnit, `report`, TUI | **Complete — awaiting approval** |
-| 6 | Journeys and onboarding: vus executor, extract/expect, feeders, think time, cookies, strain finder, `quick`, `init` | Not started |
+| 5 | Human interfaces: HTML, Markdown, JUnit, `report`, TUI | Complete, approved |
+| 6 | Journeys and onboarding: vus executor, extract/expect, feeders, think time, cookies, strain finder, `quick`, `init` | **Complete — awaiting approval** (one open question: the clean known answer, below) |
 | 7 | Capacity and compare: auto-ramp, USL, confidence intervals, gates, incident diff | Not started |
 | 8 | Integration and release: Go facade, `tracepointtest`, Action, Docker, skill, contract CI, fuzzing, soak, GoReleaser, agent dogfood | Not started |
+
+## Phase 6 — complete
+
+Multi-step journeys run under either load model, the closed model exists, ramping runs
+say where strain begins, and a project can go from nothing to a first run without
+anyone writing YAML: `quick` for one URL, `init --detect` for a project directory,
+`init --from-openapi` for an API description.
+
+### Delivered
+
+| Deliverable | Where | Evidence |
+| --- | --- | --- |
+| Static dataflow check: every `{{var}}` extracted by an earlier step of the same journey, every `{{feeder.column}}` declared, storage arguments take generators only; errors carry a JSON Pointer | `internal/config/dataflow.go` | `TestDataflowRejectsAVariableNothingExtracts`, `TestDataflowRequiresAnEarlierStep`, `TestDataflowDoesNotCrossJourneysOrRequests`, `TestDataflowFeeders`, `TestDataflowStorageRunnersTakeGeneratorsOnly`, `TestDataflowReportsTemplateSyntaxWithAPath` |
+| Journeys: ordered steps, `extract` (gjson), `expect` (status set, JSON path equals/exists, body size), per-step timeout, think time (constant, uniform, exponential), cookie jars, CSV feeders (sequential, random, unique), `traceparent` | `internal/runner/httprun` | `TestJourneyExtractsAndCarriesCookies`, `TestExtractionFailureEndsTheIteration`, `TestJSONExpectations`, `TestThinkTimeIsExcludedFromLatency`, `TestFeeders`, `TestTraceparent`, `TestPreflightCatchesABadExtractionPath` |
+| `requests` desugar to single-step journeys; one engine | `httprun.New` | Every pre-existing HTTP test passes unchanged |
+| `vus` executor (closed model): stages as a user count, `pick: per-iteration` or `per-vu`, users retire between iterations, grace then `canceled` | `internal/executor/vus.go` | `TestVUsHoldAPopulation`, `TestVUsFollowTheirStages`, `TestVUsKeepASessionPerUser`, `TestPerVUPinsTheJourney`, `TestVUsCutOffAfterGrace`, `TestVUsStopOnCancel`, `TestCookiesLastPerUserNotPerArrival`; end to end, `TestJourneyUnderVUs` |
+| Strain finder, written test-first; in the result, digest (`strain`, schema 1.1), terminal, HTML and Markdown | `internal/analysis/strain.go` | `TestStrainFoundAtTheFirstSustainedRise`, `TestStrainNeedsMoreThanDouble`, `TestStrainNeedsABaseline`, `TestStrainOnlyOnRamps`, `TestStrainSkipsIneligibleBuckets`, `TestStrainUnderVUsSpeaksOfConcurrency`; end to end, `TestStrainOnARamp` (a real ramp against a server that slows past 30 in flight) |
+| `tracepoint quick <url>` with `--db-dsn`/`--db-dsn-env`, `--db-query`, `--redis`/`--redis-env`, `--rate`, `--duration`, `--print-config`; a DSN on the command line reaches the run through the environment and is redacted | `internal/cli/quick.go` | `TestQuickProbesEveryTier` (HTTP, SQLite and Redis on one clock; the stored configuration references `${TRACEPOINT_QUICK_DB_DSN}`), `TestQuickPrintsAndRefuses` |
+| `PROBE_TRIVIAL`: a `SELECT 1` probe's blind spot, stated in the result and the digest's new `caveats` | `internal/config/caveats.go` | `TestTrivialProbeIsACaveat` |
+| `init --detect <dir>`: compose services and published ports, environment variable names (never values), the shallowest OpenAPI document; every inference with evidence and a confidence | `internal/detect/detect.go` | `TestDetectAProject` (every inference has evidence; a sentinel secret in an env file reaches nothing), `TestDetectAnEmptyDirectory`, `TestInitDetects` |
+| `init --from-openapi <spec> --base-url URL`: safe methods only, generators from parameter schemas, `# TODO:` for anything uncertain, notes for what was left out | `internal/detect/openapi.go` | `TestImportOpenAPI`, `TestImportSwagger2AndJSON`, `TestInitDetects` |
+| `scaffold_config` gains `detect_dir` and `openapi_path` (confined to the server's directory) and returns `inferences` | `internal/ops` | `TestScaffoldDetects` (the detected starter validates; `../` is refused); MCP and OpenAPI golden files |
+| Plan output for `vus`: "up to N users", `peak_vus` | `internal/plan` | Plan golden files |
+
+### Evidence
+
+```
+$ make check
+  fmt, vet, golangci-lint (0 issues), race tests, contract checks: all pass
+  govulncheck: could not run - vuln.go.dev is not reachable from this environment (CI runs it)
+$ make integration                 # exit 0
+$ make e2e                         # every scenario but one green; see "The clean known answer"
+coverage: analysis 93.2%  detect 85.5%  executor 85.6%  config 82.0%  runner/httprun 77.7%
+```
+
+### Bugs found, and fixed
+
+| Found by | Bug | Fix |
+| --- | --- | --- |
+| Building the closed model | `executor.type: vus` was accepted and silently ran the open model at the VU count as a rate | The engine builds the `vus` executor; `TestJourneyUnderVUs` fails without it |
+| Implementing journeys | `http.traceparent: true` was accepted and ignored, although `ARCHITECTURE.md` described it | One trace per iteration, a span per step; `TestTraceparent` |
+| `TestVUsHoldAPopulation` under `-race` | A data race on the peak user count | Atomic |
+| `TestQuickProbesEveryTier` | `quick --duration 5s` failed validation: the scaffold's fixed 5s warm-up equalled the run | Warm-up is a tenth of a run shorter than 30s |
+| `TestStrainOnARamp` | The plan printed "peak 4/s" for a run of four users | `peak_vus`, and "up to N users" |
+| Self-review of `quick --help` | It promised the DSN was "never written into any file"; a SQLite path appears in the result's targets | Reworded to what is true: the stored configuration references the environment and the password is redacted |
+
+### The clean known answer - open question
+
+The first `make e2e` of this phase failed one scenario: a clean run produced a one-bucket
+incident. Run alone six times, the clean scenario fails once; **the phase 5 commit
+(`1282d73`) fails the same way, one run in six**, so this is not a phase 6 regression.
+The three green runs in phase 5 did not show a residual rate of this size.
+
+The failure dump (now extended with each runner's buckets around an incident) shows
+what happens. In one bucket, one HTTP request of 50 took 40ms against a median of
+1.4ms. Client wait stayed flat on every runner, and the database was untouched. So
+the generator was not paused, and this is not a `GENERATOR_STALL`: the slowdown was
+real and happened in the target, a Go server sharing a virtualised host with Postgres,
+Redis and the generator. At 50 requests a bucket, p99 is in effect the slowest single
+request, so that one request met all three relative-rule conditions of §5.5.1
+(modified z-score 73, 13× the median, 23ms above it). The rule did what the spec says;
+the spec's "clean run → zero incidents" does not hold at this sample size on this host.
+
+Options, in the report; nothing has been changed.
+
+### Deviations from the spec, and judgements it left open
+
+| Item | Reason |
+| --- | --- |
+| No journey-level duration series | §5.3 says journey duration excludes think time. Each step is its own label with its own sketches; a journey series would be one more label per journey and is not used by any rule. Think time is excluded from every step's latency, which is what that sentence protects |
+| A `unique` feeder that runs out fails the step as `extract_failed`, logged once | The spec names no class for it; the step cannot be given the value it promised, which is what that class means |
+| Think time runs between steps, never after the last | A pause after the last step would idle a user without modelling anything |
+| Later steps are timed from their actual start | Lateness is charged once, to the first step, not compounded into every step |
+| Cookie jars: per user for the run under `vus`; per iteration under `arrival-rate`, and only for multi-step journeys. `http.cookies` defaults to true | An open-model arrival is a new visitor. A config key to turn jars off was added, additively |
+| Strain judges service time, not response time | As for hot buckets: generator queueing must not manufacture strain. "Users" is the measured peak in flight, not the stage target |
+| The OpenAPI document's `servers` are never used as the base URL, and `--from-openapi` requires `--base-url` | Servers often name production. Detection writes `${BASE_URL}` and a note instead |
+| OpenAPI import gives every request weight 1 | The spec says "weighted requests"; a document says nothing about traffic mix, so a note asks for the production mix instead of inventing one |
+| `quick` has no `--detach` | It is a smoke test; `quick --print-config` and `run --detach` cover the detached case |
+| `scaffold_config.base_url` is no longer required | Detection can supply it; every previous call still validates |
+| Digest schema 1.0 → 1.1 | `strain.next_window` and `caveats`; additive |
+
+### Risks carried into phase 7
+
+| Risk | Mitigation |
+| --- | --- |
+| The clean known answer fails about one run in six on this host | Pre-existing, understood, and awaiting a decision; every other scenario is green |
+| Detection reads the common compose and env-file layouts only | Every inference names its evidence and confidence; nothing it misses is guessed |
+| `runner/httprun` coverage is the lowest of the phase's packages (77.7%) | The uncovered paths are mostly transport error branches that the phase 1 tests exercise through the engine |
 
 ## Phase 5 — complete
 

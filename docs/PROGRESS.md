@@ -71,12 +71,12 @@ incident. Run alone six times, the clean scenario fails once; **the phase 5 comm
 The three green runs in phase 5 did not show a residual rate of this size.
 
 The failure dump (now extended with each runner's buckets around an incident) shows
-what happens. In one bucket, one HTTP request of 50 took 40ms against a median of
-1.4ms. Client wait stayed flat on every runner, and the database was untouched. So
+what happens. In one bucket, two HTTP requests of 50 took about 25 and 40ms against a
+median of 1.4ms (a Redis probe in the same second took 6ms). Client wait stayed flat on every runner, and the database was untouched. So
 the generator was not paused, and this is not a `GENERATOR_STALL`: the slowdown was
 real and happened in the target, a Go server sharing a virtualised host with Postgres,
-Redis and the generator. At 50 requests a bucket, p99 is in effect the slowest single
-request, so that one request met all three relative-rule conditions of §5.5.1
+Redis and the generator. At 50 requests a bucket, p99 rests on the slowest one or two
+requests, so those two met all three relative-rule conditions of §5.5.1
 (modified z-score 73, 13× the median, 23ms above it). The rule did what the spec says;
 the spec's "clean run → zero incidents" does not hold at this sample size on this host.
 

@@ -489,7 +489,7 @@ http:
 // Every contract the binary claims to honour must be a schema it can actually emit,
 // and each must be a valid schema in its own right.
 func TestEverySchemaIsEmittableAndValid(t *testing.T) {
-	for _, name := range []string{"config", "policy", "result", "digest", "events", "error"} {
+	for _, name := range []string{"config", "policy", "result", "digest", "events", "error", "compare"} {
 		t.Run(name, func(t *testing.T) {
 			r := exec(t, "schema", name)
 			if r.code != errs.ExitOK {

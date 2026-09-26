@@ -22,22 +22,24 @@ type Name string
 
 // The contracts, in the order `tracepoint schema` lists them.
 const (
-	Config Name = "config"
-	Policy Name = "policy"
-	Result Name = "result"
-	Digest Name = "digest"
-	Events Name = "events"
-	Error  Name = "error"
+	Config  Name = "config"
+	Policy  Name = "policy"
+	Result  Name = "result"
+	Digest  Name = "digest"
+	Events  Name = "events"
+	Error   Name = "error"
+	Compare Name = "compare"
 )
 
 //nolint:gochecknoglobals // A fixed table, never mutated after init.
 var descriptions = map[Name]string{
-	Config: "a TracePoint run configuration",
-	Policy: "the safety envelope a human grants",
-	Result: "result.json, the system of record for one run",
-	Digest: "the prioritised, context-sized summary an agent reads",
-	Events: "one line of the append-only event stream",
-	Error:  "the error envelope every failure is reported in",
+	Config:  "a TracePoint run configuration",
+	Policy:  "the safety envelope a human grants",
+	Result:  "result.json, the system of record for one run",
+	Digest:  "the prioritised, context-sized summary an agent reads",
+	Events:  "one line of the append-only event stream",
+	Error:   "the error envelope every failure is reported in",
+	Compare: "two runs compared, with confidence intervals and regression gates",
 }
 
 // Names lists every contract, sorted, for `tracepoint schema --help` and for the

@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IshaanNene/Tracepoint/schemas/v1/compare.schema.json",
+  "title": "TracePoint comparison",
+  "description": "Two runs compared: the baseline and the current run. regression is true when any gate failed, which is what makes `tracepoint compare` exit 1. A p99 change counts only when the two runs' 95% confidence intervals for p99 do not overlap - conservative by design, so sampling noise is not reported as a regression. Read summary first, then gates, then runners.",
+  "type": "object",
+  "required": ["schema_version", "baseline", "current", "regression", "summary", "gates", "runners", "gate_settings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "description": "Version of this document's shape, MAJOR.MINOR.", "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "examples": ["1.0"] },
+    "baseline": { "$ref": "#/$defs/runRef" },
+    "current": { "$ref": "#/$defs/runRef" },
+    "regression": { "description": "Whether any gate failed.", "type": "boolean" },
+    "summary": { "description": "The outcome in a sentence or two.", "type": "string" },
+    "gates": {
+      "description": "Every gate for every runner compared, passing or not.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["gate", "runner", "pass", "threshold", "baseline", "current", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "gate": {
+            "description": "budget_crossing: current p99 over its budget while the baseline was within it. relative_increase: p99 up by more than relative_pct and relative_ms, and significant. error_rate_increase: error rate up by more than error_pp percentage points.",
+            "enum": ["budget_crossing", "relative_increase", "error_rate_increase"]
+          },
+          "runner": { "type": "string" },
+          "pass": { "type": "boolean" },
+          "insufficient": { "description": "The gate failed for lack of evidence: a rise big enough to cross it that the data can neither confirm nor clear.", "type": "boolean" },
+          "threshold": { "description": "The gate's threshold: percent for relative_increase, milliseconds for budget_crossing, percentage points for error_rate_increase.", "type": "number" },
+          "baseline": { "type": "number" },
+          "current": { "type": "number" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "runners": { "description": "Per-runner deltas.", "type": "array", "items": { "$ref": "#/$defs/delta" } },
+    "labels": { "description": "Per-label deltas, for labels in both runs.", "type": "array", "items": { "$ref": "#/$defs/delta" } },
+    "incidents": {
+      "description": "Incidents paired by runner and time: two overlap when their windows meet within two buckets.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["runner", "status", "baseline", "current"],
+        "additionalProperties": false,
+        "properties": {
+          "runner": { "type": "string" },
+          "status": { "enum": ["new", "fixed", "worsened", "improved", "unchanged"] },
+          "baseline": { "oneOf": [{ "$ref": "#/$defs/incident" }, { "type": "null" }] },
+          "current": { "oneOf": [{ "$ref": "#/$defs/incident" }, { "type": "null" }] }
+        }
+      }
+    },
+    "config_diff": { "description": "Configuration keys whose values differ, dotted.", "type": "array", "items": { "type": "string" } },
+    "warnings": {
+      "description": "Reasons to read the comparison with care: an invalid input, differing configurations, a runner in only one run.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "severity": { "enum": ["info", "warn", "error"] },
+          "message": { "type": "string" },
+          "fix": { "type": "string" },
+          "detail": {}
+        }
+      }
+    },
+    "gate_settings": {
+      "description": "The thresholds this comparison was judged by.",
+      "type": "object",
+      "required": ["relative_pct", "relative_ms", "error_pp"],
+      "additionalProperties": false,
+      "properties": {
+        "relative_pct": { "type": "number" },
+        "relative_ms": { "type": "number" },
+        "error_pp": { "type": "number" },
+        "budgets_ms": { "type": "object", "additionalProperties": { "type": "number" } }
+      }
+    }
+  },
+  "$defs": {
+    "runRef": {
+      "type": "object",
+      "required": ["id", "schema_version", "validity", "duration_s"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "started_at": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "validity": { "type": "string" },
+        "duration_s": { "type": "number" }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["n", "p50_ms", "p95_ms", "p99_ms", "error_ratio", "achieved_rps"],
+      "additionalProperties": false,
+      "properties": {
+        "n": { "type": "integer" },
+        "p50_ms": { "type": "number" },
+        "p95_ms": { "type": "number" },
+        "p99_ms": { "type": "number" },
+        "error_ratio": { "type": "number" },
+        "achieved_rps": { "type": "number" }
+      }
+    },
+    "interval": {
+      "description": "A 95% confidence interval for p99 in milliseconds, or null when there were too few samples to form one.",
+      "oneOf": [{ "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }, { "type": "null" }]
+    },
+    "delta": {
+      "type": "object",
+      "required": ["runner", "baseline", "current", "p50_delta_ms", "p95_delta_ms", "p99_delta_ms", "p99_delta_pct", "error_delta_pp", "rps_delta_pct", "p99_ci", "change"],
+      "additionalProperties": false,
+      "properties": {
+        "runner": { "type": "string" },
+        "label": { "type": "string" },
+        "baseline": { "$ref": "#/$defs/stats" },
+        "current": { "$ref": "#/$defs/stats" },
+        "p50_delta_ms": { "type": "number" },
+        "p95_delta_ms": { "type": "number" },
+        "p99_delta_ms": { "type": "number" },
+        "p99_delta_pct": { "type": "number" },
+        "error_delta_pp": { "description": "Error-rate change in percentage points.", "type": "number" },
+        "rps_delta_pct": { "type": "number" },
+        "p99_ci": {
+          "type": "object",
+          "required": ["baseline", "current"],
+          "additionalProperties": false,
+          "properties": {
+            "baseline": { "$ref": "#/$defs/interval" },
+            "current": { "$ref": "#/$defs/interval" }
+          }
+        },
+        "change": { "description": "slower or faster only when the intervals do not overlap; insufficient when either could not be formed.", "enum": ["slower", "faster", "unchanged", "insufficient"] }
+      }
+    },
+    "incident": {
+      "type": "object",
+      "required": ["id", "class", "start_s", "end_s", "peak_p99_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "class": { "type": "string" },
+        "start_s": { "type": "number" },
+        "end_s": { "type": "number" },
+        "peak_p99_ms": { "type": "number" }
+      }
+    }
+  }
+}

@@ -12,15 +12,21 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptrace"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/IshaanNene/Tracepoint/internal/buildinfo"
@@ -49,22 +55,37 @@ const PreflightHeader = "X-Tracepoint-Preflight"
 const discardBufferSize = 32 * 1024
 
 // Runner drives HTTP load.
+//
+// Every iteration runs one journey. A plain `requests:` list is compiled into
+// single-step journeys (ADR-003), so extraction, expectations, cookies, feeders and
+// think time have exactly one implementation, and a user who wrote `requests` never
+// sees the word journey: a one-step journey's label is the request's name.
 type Runner struct {
 	cfg    *config.HTTP
 	deps   runner.Deps
 	client *http.Client
 
-	requests []*request
+	journeys []*journey
 	picker   *runner.Weighted
-	labels   []metrics.LabelID
+	feeders  map[string]*feeder
 	timeout  time.Duration
 	insecure bool
+	cookies  bool
 
-	phases *phaseStats
-	shared *template.Shared
+	phases        *phaseStats
+	shared        *template.Shared
+	exhaustedOnce sync.Once
 }
 
-// request is a compiled request: everything resolved once, at load time, so the hot
+// journey is a compiled journey: its steps in order, and what it needs per iteration.
+type journey struct {
+	name    string
+	steps   []*request
+	feeders []string // the feeders its templates read
+	extract bool     // whether any step extracts, so the iteration needs a variable map
+}
+
+// request is a compiled step: everything resolved once, at load time, so the hot
 // path only renders its templates and sends. A part with no template is kept as a
 // plain value and costs nothing per request.
 type request struct {
@@ -81,7 +102,13 @@ type request struct {
 	bodyTpl *template.Template
 	timeout time.Duration
 	expect  *config.Expect
-	label   metrics.LabelID
+	extract []config.Extract
+	think   *config.ThinkTime
+	// needBody is set when an expectation or an extraction reads the body, which is
+	// then kept (up to a bound) rather than only drained.
+	needBody bool
+	label    metrics.LabelID
+	labelStr string
 }
 
 // New builds an HTTP runner from an already-validated configuration.
@@ -89,32 +116,76 @@ func New(cfg *config.HTTP, runDuration, defaultTimeout time.Duration, deps runne
 	if cfg == nil {
 		return nil, errs.New(errs.CodeInternal, "the http runner needs a configuration")
 	}
-	if len(cfg.Journeys) > 0 {
-		return nil, errs.New(errs.CodeConfigInvalidValue,
-			"multi-step journeys are not in this build yet").
-			WithPath("/http/journeys").
-			WithHint("use `requests:` for now; journeys land in phase 6")
-	}
-
 	stats, err := newPhaseStats()
 	if err != nil {
 		return nil, err
 	}
-	r := &Runner{cfg: cfg, deps: deps, timeout: defaultTimeout, phases: stats, shared: template.NewShared(deps.Clock)}
-
-	weights := make([]float64, 0, len(cfg.Requests))
-	for i := range cfg.Requests {
-		src := &cfg.Requests[i]
-		compiled, compileErr := r.compile(src)
-		if compileErr != nil {
-			return nil, compileErr
-		}
-		r.requests = append(r.requests, compiled)
-		r.labels = append(r.labels, deps.Collector.LabelID(src.Name))
-		weights = append(weights, src.WeightOr())
+	r := &Runner{
+		cfg: cfg, deps: deps, timeout: defaultTimeout, phases: stats,
+		shared: template.NewShared(deps.Clock), feeders: map[string]*feeder{},
+		cookies: cfg.Cookies == nil || *cfg.Cookies,
 	}
-	for i, c := range r.requests {
-		c.label = r.labels[i]
+	for i, f := range cfg.Feeders {
+		fd, ferr := loadFeeder(f, fmt.Sprintf("/http/feeders/%d", i))
+		if ferr != nil {
+			return nil, ferr
+		}
+		r.feeders[f.Name] = fd
+	}
+
+	// requests desugar to one-step journeys named after the request.
+	type source struct {
+		name   string
+		weight float64
+		path   string
+		steps  []config.HTTPStep
+		single bool
+	}
+	var sources []source
+	for i := range cfg.Requests {
+		q := cfg.Requests[i]
+		sources = append(sources, source{name: q.Name, weight: q.WeightOr(), path: fmt.Sprintf("/http/requests/%d", i), steps: []config.HTTPStep{q}, single: true})
+	}
+	for i := range cfg.Journeys {
+		j := &cfg.Journeys[i]
+		sources = append(sources, source{name: j.Name, weight: j.WeightOr(), path: fmt.Sprintf("/http/journeys/%d", i), steps: j.Steps})
+	}
+
+	weights := make([]float64, 0, len(sources))
+	for _, src := range sources {
+		j := &journey{name: src.name}
+		used := map[string]bool{}
+		vars := map[string]bool{}
+		for k := range src.steps {
+			step := &src.steps[k]
+			path := src.path
+			if !src.single {
+				path = fmt.Sprintf("%s/steps/%d", src.path, k)
+			}
+			compiled, cerr := r.compile(step, path, vars, used)
+			if cerr != nil {
+				return nil, cerr
+			}
+			compiled.labelStr = step.Name
+			if !src.single {
+				compiled.labelStr = src.name + "/" + step.Name
+			}
+			compiled.label = deps.Collector.LabelID(compiled.labelStr)
+			j.steps = append(j.steps, compiled)
+			for _, e := range step.Extract {
+				vars[e.Name] = true
+				j.extract = true
+			}
+		}
+		for name := range used {
+			j.feeders = append(j.feeders, name)
+		}
+		sort.Strings(j.feeders)
+		r.journeys = append(r.journeys, j)
+		weights = append(weights, src.weight)
+	}
+	if len(r.journeys) == 0 {
+		return nil, errs.New(errs.CodeConfigMissingField, "the http section has no requests and no journeys").WithPath("/http")
 	}
 	r.picker = runner.NewWeighted(weights)
 
@@ -126,8 +197,26 @@ func New(cfg *config.HTTP, runDuration, defaultTimeout time.Duration, deps runne
 	return r, nil
 }
 
-func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
-	out := &request{name: src.Name, method: src.Method, base: r.cfg.BaseURL, expect: src.Expect}
+// compile builds one step. vars are the variables earlier steps of its journey
+// extract, and used collects the feeders it reads.
+func (r *Runner) compile(src *config.HTTPStep, path string, vars, used map[string]bool) (*request, error) {
+	out := &request{
+		name: src.Name, method: src.Method, base: r.cfg.BaseURL, expect: src.Expect,
+		extract: src.Extract, think: src.Think,
+	}
+	if out.method == "" {
+		out.method = http.MethodGet
+	}
+	for _, e := range src.Extract {
+		if e.From == "" || e.From == "body" {
+			out.needBody = true
+		}
+	}
+	if src.Expect != nil && len(src.Expect.JSON) > 0 {
+		out.needBody = true
+	}
+	var templates []*template.Template
+	note := func(t *template.Template) { templates = append(templates, t) }
 
 	// A template is compiled once, here, so a malformed token or an unknown generator
 	// is a configuration error before anything runs, and a token can never be sent
@@ -135,8 +224,9 @@ func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
 	// resource that does not exist, and the 404s would look like a target problem.
 	urlTpl, err := template.Compile(src.URL)
 	if err != nil {
-		return nil, withPath(err, "/http/requests/"+src.Name+"/url")
+		return nil, withPath(err, path+"/url")
 	}
+	note(urlTpl)
 	out.display = src.URL
 	if urlTpl.IsStatic() {
 		if out.url, err = resolveURL(r.cfg.BaseURL, src.URL); err != nil {
@@ -152,7 +242,7 @@ func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
 		if templatedAuthority(src.URL) {
 			return nil, errs.New(errs.CodeConfigInvalidValue,
 				"request %q uses a template in its scheme or host", src.Name).
-				WithPath("/http/requests/" + src.Name + "/url").
+				WithPath(path + "/url").
 				WithHint("templates may fill a path or query; the host must be fixed so the safety policy can judge it")
 		}
 		// The static parts must still make a valid url, which a placeholder checks.
@@ -173,13 +263,24 @@ func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
 		if err != nil {
 			return nil, errs.Wrap(errs.CodeIOReadFailed, err, "reading the body file for request %q", src.Name)
 		}
+		// The file is only read here, so the dataflow check the loader applies to an
+		// inline body is applied to it now.
+		feeders := map[string]bool{}
+		for name := range r.feeders {
+			feeders[name] = true
+		}
+		if cerr := config.CheckTemplate(string(b), path+"/body_file",
+			config.Scope{Owner: fmt.Sprintf("the body file of %q", src.Name), Vars: vars, Feeders: feeders, Journey: true}); cerr != nil {
+			return nil, cerr
+		}
 		body = b
 	}
 	if len(body) > 0 {
 		tpl, err := template.Compile(string(body))
 		if err != nil {
-			return nil, withPath(err, "/http/requests/"+src.Name+"/body")
+			return nil, withPath(err, path+"/body")
 		}
+		note(tpl)
 		if tpl.IsStatic() {
 			out.body = body
 		} else {
@@ -197,8 +298,9 @@ func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
 	for k, v := range out.headers {
 		tpl, err := template.Compile(v)
 		if err != nil {
-			return nil, withPath(err, "/http/requests/"+src.Name+"/headers/"+k)
+			return nil, withPath(err, path+"/headers/"+k)
 		}
+		note(tpl)
 		if !tpl.IsStatic() {
 			if out.hdrTpls == nil {
 				out.hdrTpls = map[string]*template.Template{}
@@ -208,11 +310,39 @@ func (r *Runner) compile(src *config.HTTPStep) (*request, error) {
 		}
 	}
 
+	// Every feeder column a template reads must exist in the file, which is only
+	// known now that the file has been read.
+	for _, t := range templates {
+		for _, fc := range t.FeederColumns() {
+			name, col, _ := strings.Cut(fc, ".")
+			fd, ok := r.feeders[name]
+			if !ok {
+				// The loader's dataflow check already refused this configuration;
+				// reaching here means it was built by hand, so fail the same way.
+				return nil, errs.New(errs.CodeConfigFeederNotFound, "request %q reads from feeder %q, which is not declared", src.Name, name).WithPath(path)
+			}
+			if _, ok := fd.columns[col]; !ok {
+				return nil, errs.New(errs.CodeConfigFeederNotFound, "request %q reads column %q of feeder %q, which has no such column", src.Name, col, name).
+					WithPath(path).WithHint("the feeder's columns are %s", strings.Join(sortedColumns(fd), ", "))
+			}
+			used[name] = true
+		}
+	}
+
 	out.timeout = r.timeout
 	if src.Timeout != nil {
 		out.timeout = src.Timeout.D()
 	}
 	return out, nil
+}
+
+func sortedColumns(fd *feeder) []string {
+	out := make([]string, 0, len(fd.columns))
+	for c := range fd.columns {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // templatedAuthority reports whether a template token appears before the path of a
@@ -253,12 +383,12 @@ func withPath(err error, path string) error {
 // render fills in a request's templates for one iteration. A template that cannot be
 // rendered - a variable a journey was meant to extract, say - fails the operation
 // rather than sending a literal token.
-func (r *Runner) render(req *request, it *runner.Iteration) (target string, body []byte, headers map[string]string, err error) {
+func (r *Runner) render(req *request, rng *rand.Rand, vars map[string]string, rows map[string]map[string]string) (target string, body []byte, headers map[string]string, err error) {
 	target, body = req.url, req.body
 	if req.urlTpl == nil && req.bodyTpl == nil && req.hdrTpls == nil {
 		return target, body, nil, nil
 	}
-	tctx := &template.Context{Shared: r.shared, Rand: it.Rand}
+	tctx := &template.Context{Shared: r.shared, Rand: rng, Vars: vars, Rows: rows}
 	if req.urlTpl != nil {
 		raw, rerr := req.urlTpl.Render(tctx)
 		if rerr != nil {
@@ -407,11 +537,14 @@ func (r *Runner) Name() string { return Name }
 // Kind reports that this is the tier users talk to.
 func (r *Runner) Kind() metrics.Kind { return metrics.KindApp }
 
-// Labels are the request names, known before the run starts.
+// Labels are the step names - a request's own name, or journey/step - known before
+// the run starts.
 func (r *Runner) Labels() []string {
-	out := make([]string, 0, len(r.requests))
-	for _, req := range r.requests {
-		out = append(out, req.name)
+	var out []string
+	for _, j := range r.journeys {
+		for _, st := range j.steps {
+			out = append(out, st.labelStr)
+		}
 	}
 	return out
 }
@@ -424,58 +557,64 @@ func (r *Runner) InsecureTLS() bool { return r.insecure }
 func (r *Runner) Targets() []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, req := range r.requests {
-		if h := req.host; h != "" && !seen[h] {
-			seen[h] = true
-			out = append(out, h)
+	for _, j := range r.journeys {
+		for _, st := range j.steps {
+			if h := st.host; h != "" && !seen[h] {
+				seen[h] = true
+				out = append(out, h)
+			}
 		}
 	}
 	return out
 }
 
-// Prepare sends one request per label before any load starts.
+// Prepare runs every journey once, in order, before any load starts.
 //
-// Preflight costs one round trip per request and catches the things that would
-// otherwise waste a whole run: a wrong port, an unresolvable host, a path that 404s
-// because of a typo. A failure here is reported before a single measurement is taken.
+// Preflight costs one round trip per step and catches the things that would otherwise
+// waste a whole run: a wrong port, an unresolvable host, a path that 404s because of a
+// typo - and, for a journey, an extraction path that does not match what the target
+// returns, which would otherwise fail every iteration at its second step.
 func (r *Runner) Prepare(ctx context.Context) error {
-	for _, req := range r.requests {
-		if err := r.preflight(ctx, req); err != nil {
+	rng := rand.New(rand.NewPCG(r.deps.Seed, 0)) //nolint:gosec // reproducibility, not secrecy
+	for _, j := range r.journeys {
+		if err := r.preflight(ctx, j, rng); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *Runner) preflight(ctx context.Context, req *request) error {
-	ctx, cancel := context.WithTimeout(ctx, req.timeout)
-	defer cancel()
-
-	it := &runner.Iteration{Rand: rand.New(rand.NewPCG(r.deps.Seed, 0))} //nolint:gosec // reproducibility, not secrecy
-	target, body, headers, err := r.render(req, it)
-	if err != nil {
-		return errs.Wrap(errs.CodeConfigTemplateSyntax, err, "rendering request %q for preflight", req.name)
+func (r *Runner) preflight(ctx context.Context, j *journey, rng *rand.Rand) error {
+	rows, ok := r.rowsFor(j, rng)
+	if !ok {
+		return errs.New(errs.CodeConfigInvalidValue, "a unique feeder of journey %q has no rows left before the run started", j.name)
 	}
-	httpReq, err := r.newRequest(ctx, req, target, body, headers)
-	if err != nil {
-		return err
+	vars := map[string]string{}
+	var jar http.CookieJar
+	if r.cookies {
+		jar = newJar()
 	}
-	httpReq.Header.Set(PreflightHeader, "1")
-	resp, err := r.client.Do(httpReq)
-	if err != nil {
-		return errs.Wrap(preflightCode(err), err, "preflight request %q to %s failed", req.name, req.display).
-			WithHint("check that the target is running and reachable before starting a load test")
-	}
-	defer func() { _ = resp.Body.Close() }()
-	discard(resp.Body)
-
-	// A preflight response is reported but not judged: a 404 here is worth knowing
-	// about, yet a target legitimately returning 4xx to an unauthenticated probe is
-	// not a reason to refuse to run.
-	if resp.StatusCode >= 500 {
-		return errs.New(errs.CodePreflightHTTP,
-			"preflight request %q to %s returned %d", req.name, req.display, resp.StatusCode).
-			WithHint("the target is failing before the test has started")
+	for _, st := range j.steps {
+		var o metrics.Outcome
+		res := r.exchange(ctx, st, rng, vars, rows, jar, "", true, &o)
+		switch {
+		case res.renderErr != nil:
+			return errs.Wrap(errs.CodeConfigTemplateSyntax, res.renderErr, "rendering %q for preflight", st.labelStr)
+		case res.transportErr != nil:
+			return errs.Wrap(preflightCode(res.transportErr), res.transportErr, "preflight request %q to %s failed", st.labelStr, st.display).
+				WithHint("check that the target is running and reachable before starting a load test")
+		case res.status >= 500:
+			// A preflight response is reported but not judged below 500: a 404 here is
+			// worth knowing about, yet a target legitimately returning 4xx to an
+			// unauthenticated probe is not a reason to refuse to run.
+			return errs.New(errs.CodePreflightHTTP,
+				"preflight request %q to %s returned %d", st.labelStr, st.display, res.status).
+				WithHint("the target is failing before the test has started")
+		case res.missing != "":
+			return errs.New(errs.CodePreflightHTTP,
+				"preflight: step %q got %d, but its extraction %q found nothing", st.labelStr, res.status, res.missing).
+				WithHint("check the extraction's path against what the target actually returns; every iteration would fail at the next step")
+		}
 	}
 	return nil
 }
@@ -488,35 +627,112 @@ func preflightCode(err error) errs.Code {
 	return errs.CodePreflightConnect
 }
 
-// Do performs one request and records its outcome.
+// Do runs one journey and records an outcome for each step it reaches.
+//
+// The first step is timed from the iteration's intended send time, so the open model
+// stays coordinated-omission correct. Every later step is timed from when it actually
+// started: think time between steps is the simulated user's, not the target's, and is
+// excluded from every latency. A step that fails ends the iteration; the steps after
+// it are not sent, because they would depend on what it did not return.
 func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recorder) error {
-	req := r.requests[r.picker.Pick(it.Rand)]
+	j := r.journeys[it.Session.Choose(func() int { return r.picker.Pick(it.Rand) })]
 
-	var o metrics.Outcome
-	it.StampOutcome(&o)
-	o.Label = req.label
+	var vars map[string]string
+	if j.extract {
+		vars = make(map[string]string, 4)
+	}
+	jar := r.jarFor(it.Session, len(j.steps) > 1)
+	trace := ""
+	if r.cfg.Traceparent {
+		trace = traceID(it.Rand)
+	}
 
-	tr := &phaseTrace{start: r.deps.Start, clock: r.deps.Clock}
-	ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(ctx, tr.clientTrace()), req.timeout)
-	defer cancel()
-
-	target, body, headers, err := r.render(req, it)
-	if err != nil {
-		// The iteration stops here: sending the request anyway would mean sending a
-		// literal {{token}}, which §4 forbids.
+	rows, ok := r.rowsFor(j, it.Rand)
+	if !ok {
+		// A unique feeder has run out. The first step cannot be given the value it
+		// needs, which is what extract_failed means; nothing is sent.
+		r.exhaustedOnce.Do(func() {
+			if r.deps.Logger != nil {
+				r.deps.Logger.Warn("a unique feeder ran out of rows; further iterations of the journey fail as extract_failed", "journey", j.name)
+			}
+		})
+		var o metrics.Outcome
+		it.StampOutcome(&o)
+		o.Label = j.steps[0].label
 		o.Class = metrics.ClassExtractFailed
 		o.ConnAcquired = r.deps.Elapsed()
 		o.End = o.ConnAcquired
 		rec.Record(&o)
 		return nil
 	}
-	httpReq, err := r.newRequest(ctx, req, target, body, headers)
+
+	last := len(j.steps) - 1
+	for k, st := range j.steps {
+		var o metrics.Outcome
+		if k == 0 {
+			it.StampOutcome(&o)
+		} else {
+			now := r.deps.Elapsed()
+			o.Intended, o.Dispatched, o.WorkerStart = now, now, now
+		}
+		r.exchange(ctx, st, it.Rand, vars, rows, jar, trace, false, &o)
+		rec.Record(&o)
+		if o.Class != metrics.ClassOK || ctx.Err() != nil {
+			return nil
+		}
+		if k < last && st.think != nil {
+			if err := r.pause(ctx, st.think, it.Rand); err != nil {
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+// result is what one exchange reports besides the outcome, for preflight's messages.
+type result struct {
+	status       int
+	renderErr    error
+	transportErr error
+	missing      string // the extraction that found nothing
+}
+
+// exchange sends one step and fills in the outcome: rendering against the journey's
+// variables and feeder rows, cookies, the request, expectations and extraction.
+func (r *Runner) exchange(ctx context.Context, st *request, rng *rand.Rand, vars map[string]string,
+	rows map[string]map[string]string, jar http.CookieJar, trace string, preflight bool, o *metrics.Outcome) result {
+	o.Label = st.label
+
+	tr := &phaseTrace{start: r.deps.Start, clock: r.deps.Clock}
+	ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(ctx, tr.clientTrace()), st.timeout)
+	defer cancel()
+
+	target, body, headers, err := r.render(st, rng, vars, rows)
+	if err != nil {
+		// The iteration stops here: sending the request anyway would mean sending a
+		// literal {{token}}, which §4 forbids.
+		o.Class = metrics.ClassExtractFailed
+		o.ConnAcquired = r.deps.Elapsed()
+		o.End = o.ConnAcquired
+		return result{renderErr: err}
+	}
+	httpReq, err := r.newRequest(ctx, st, target, body, headers)
 	if err != nil {
 		o.Class = metrics.ClassOther
 		o.ConnAcquired = r.deps.Elapsed()
 		o.End = o.ConnAcquired
-		rec.Record(&o)
-		return nil
+		return result{transportErr: err}
+	}
+	if jar != nil {
+		for _, c := range jar.Cookies(httpReq.URL) {
+			httpReq.AddCookie(c)
+		}
+	}
+	if trace != "" {
+		httpReq.Header.Set("traceparent", traceparent(trace, rng))
+	}
+	if preflight {
+		httpReq.Header.Set(PreflightHeader, "1")
 	}
 	o.BytesOut = int64(len(body))
 
@@ -528,31 +744,154 @@ func (r *Runner) Do(ctx context.Context, it *runner.Iteration, rec metrics.Recor
 		o.ConnAcquired = tr.connAcquiredOr(r.deps.Elapsed())
 		o.End = r.deps.Elapsed()
 		o.Class = classifyTransportError(ctx, err)
-		rec.Record(&o)
-		return nil
+		return result{transportErr: err}
 	}
 
 	o.Status = int32(resp.StatusCode) //nolint:gosec // an HTTP status fits in an int32
 	o.ConnAcquired = tr.connAcquiredOr(o.WorkerStart)
 	o.FirstByte = tr.firstByte
 
-	n, readErr := drain(resp.Body, req.expect)
+	var kept []byte
+	var n int64
+	var readErr error
+	if st.needBody {
+		kept, n, readErr = capture(resp.Body, st.expect)
+	} else {
+		n, readErr = drain(resp.Body, st.expect)
+	}
 	_ = resp.Body.Close()
+	if jar != nil {
+		if cs := resp.Cookies(); len(cs) > 0 {
+			jar.SetCookies(resp.Request.URL, cs)
+		}
+	}
 	o.BytesIn = n
 	o.End = r.deps.Elapsed()
-	// Where the time went inside the request. Aggregated for the whole run rather than
-	// per bucket: six more sketches per (label, bucket) would cost far more memory than
-	// the breakdown is worth, and it is read as a whole-run figure anyway.
-	r.phases.observe(tr.phases(o.End))
+	if !preflight {
+		// Where the time went inside the request. Aggregated for the whole run rather
+		// than per bucket: six more sketches per (label, bucket) would cost far more
+		// memory than the breakdown is worth, and it is read as a whole-run figure.
+		r.phases.observe(tr.phases(o.End))
+	}
 
+	res := result{status: resp.StatusCode}
 	switch {
 	case readErr != nil:
 		o.Class = classifyTransportError(ctx, readErr)
+		res.transportErr = readErr
+		return res
 	default:
-		o.Class = classifyResponse(resp.StatusCode, req.expect, n)
+		o.Class = classifyResponse(resp.StatusCode, st.expect, n)
 	}
-	rec.Record(&o)
-	return nil
+	if o.Class == metrics.ClassOK && st.expect != nil && len(st.expect.JSON) > 0 && !jsonHolds(kept, st.expect.JSON) {
+		o.Class = metrics.ClassExpectFailed
+	}
+	// Extraction happens only from a response that counted as a success: a value
+	// pulled out of an error page would send the next step somewhere meaningless.
+	if o.Class == metrics.ClassOK {
+		for _, e := range st.extract {
+			v, found := extractValue(e, kept, resp)
+			if !found {
+				o.Class = metrics.ClassExtractFailed
+				res.missing = e.Name
+				break
+			}
+			if vars != nil {
+				vars[e.Name] = v
+			}
+		}
+	}
+	return res
+}
+
+// pause sleeps for a step's think time: constant, uniform between min and max, or
+// exponential around a mean (capped at ten means, so one unlucky draw cannot stall a
+// user for the rest of the run).
+func (r *Runner) pause(ctx context.Context, t *config.ThinkTime, rng *rand.Rand) error {
+	var d time.Duration
+	switch t.Type {
+	case "constant":
+		if t.Duration != nil {
+			d = t.Duration.D()
+		}
+	case "uniform":
+		if t.Min != nil && t.Max != nil {
+			lo, hi := t.Min.D(), t.Max.D()
+			d = lo + time.Duration(rng.Float64()*float64(hi-lo))
+		}
+	case "exponential":
+		if t.Mean != nil {
+			mean := float64(t.Mean.D())
+			d = time.Duration(min(rng.ExpFloat64()*mean, 10*mean))
+		}
+	}
+	if d <= 0 {
+		return nil
+	}
+	return r.deps.Clock.SleepUntil(ctx, r.deps.Clock.Now().Add(d))
+}
+
+// rowsFor picks this iteration's row from every feeder the journey reads. A journey
+// sees one row per feeder for all of its steps, so a user logs in and checks out as
+// the same person.
+func (r *Runner) rowsFor(j *journey, rng *rand.Rand) (map[string]map[string]string, bool) {
+	if len(j.feeders) == 0 {
+		return nil, true
+	}
+	rows := make(map[string]map[string]string, len(j.feeders))
+	for _, name := range j.feeders {
+		row, ok := r.feeders[name].pick(rng)
+		if !ok {
+			return nil, false
+		}
+		rows[name] = row
+	}
+	return rows, true
+}
+
+// jarFor returns the cookie jar for a user: the session's own under the closed
+// model, which lasts the run; a fresh one for this iteration under the open model,
+// and only when there is a later step for a cookie to reach.
+func (r *Runner) jarFor(s *runner.Session, multiStep bool) http.CookieJar {
+	if !r.cookies {
+		return nil
+	}
+	if s == nil {
+		if !multiStep {
+			return nil
+		}
+		return newJar()
+	}
+	if jar, ok := s.Data.(http.CookieJar); ok {
+		return jar
+	}
+	jar := newJar()
+	s.Data = jar
+	return jar
+}
+
+func newJar() http.CookieJar {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil // cookiejar.New fails only for a bad public suffix list, and there is none
+	}
+	return jar
+}
+
+// traceID draws a W3C trace id for one iteration: every step of a journey shares it,
+// so an APM shows the journey as one trace.
+func traceID(rng *rand.Rand) string {
+	var b [16]byte
+	binary.BigEndian.PutUint64(b[:8], rng.Uint64())
+	binary.BigEndian.PutUint64(b[8:], rng.Uint64()|1) // never all zeros, which W3C forbids
+	return hex.EncodeToString(b[:])
+}
+
+// traceparent is the header for one step: the iteration's trace, a new span, sampled.
+func traceparent(trace string, rng *rand.Rand) string {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], rng.Uint64()|1)
+	return "00-" + trace + "-" + hex.EncodeToString(b[:]) + "-01"
 }
 
 func (r *Runner) newRequest(ctx context.Context, req *request, target string, payload []byte, extra map[string]string) (*http.Request, error) {

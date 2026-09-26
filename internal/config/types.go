@@ -234,6 +234,7 @@ type HTTP struct {
 	BaseURL     string            `yaml:"base_url" json:"base_url,omitempty"`
 	Headers     map[string]string `yaml:"headers" json:"headers,omitempty"`
 	Traceparent bool              `yaml:"traceparent" json:"traceparent,omitempty"`
+	Cookies     *bool             `yaml:"cookies" json:"cookies,omitempty"`
 	Executor    Executor          `yaml:"executor" json:"executor"`
 	Transport   *Transport        `yaml:"transport" json:"transport,omitempty"`
 	Feeders     []Feeder          `yaml:"feeders" json:"feeders,omitempty"`

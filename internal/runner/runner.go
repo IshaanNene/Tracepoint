@@ -81,6 +81,39 @@ type Iteration struct {
 	// contend on a shared one. It is seeded from the run seed, so the sequence is
 	// reproducible.
 	Rand *rand.Rand
+
+	// Session is the virtual user this iteration belongs to. The closed-model
+	// executor keeps one per user for the whole run, so a cookie jar or a pinned
+	// journey carries from one iteration to the next; the open model leaves it nil,
+	// and each arrival is a new user.
+	Session *Session
+}
+
+// Session is one virtual user's state across its iterations.
+type Session struct {
+	// VU numbers the user, from zero.
+	VU int
+	// PerVU pins the user to one weighted choice for the whole run (pick: per-vu),
+	// which is right when journeys model distinct kinds of user.
+	PerVU bool
+	// Data is the runner's own state for this user, such as a cookie jar. Only the
+	// goroutine running the user touches it.
+	Data any
+
+	pinned int
+	isSet  bool
+}
+
+// Choose returns this iteration's weighted choice: a fresh one each time, or under
+// PerVU the user's first choice, forever.
+func (s *Session) Choose(pick func() int) int {
+	if s == nil || !s.PerVU {
+		return pick()
+	}
+	if !s.isSet {
+		s.pinned, s.isSet = pick(), true
+	}
+	return s.pinned
 }
 
 // StampOutcome copies the executor's timing stamps into an outcome. Runners call it

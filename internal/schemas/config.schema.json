@@ -839,6 +839,11 @@
           "type": "boolean",
           "default": false
         },
+        "cookies": {
+          "description": "Keep a cookie jar per virtual user: cookies a response sets are sent on that user's later requests. Under vus a user's jar lasts the whole run; under arrival-rate every iteration is a new user with an empty jar.",
+          "type": "boolean",
+          "default": true
+        },
         "executor": {
           "$ref": "#/$defs/executor"
         },

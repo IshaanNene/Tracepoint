@@ -614,20 +614,3 @@ func TestRunnerMetadata(t *testing.T) {
 		t.Error("InsecureTLS() true without it being configured")
 	}
 }
-
-func TestJourneysAreRejectedForNow(t *testing.T) {
-	t.Parallel()
-	cfg := &config.HTTP{
-		Executor: config.Executor{Type: "arrival-rate", Rate: 1, MaxInFlight: 1},
-		Journeys: []config.Journey{{Name: "j", Steps: []config.HTTPStep{{Name: "s", URL: "http://127.0.0.1/"}}}},
-	}
-	col, _ := metrics.NewCollector(metrics.Config{
-		Runner: "http", Labels: []string{"j/s"}, BucketWidth: time.Second, MinSamples: 1,
-	})
-	_, err := httprun.New(cfg, time.Second, time.Second, runner.Deps{
-		Collector: col, Clock: clock.New(), Start: time.Now(),
-	})
-	if err == nil {
-		t.Fatal("journeys are not implemented yet and must be refused rather than silently ignored")
-	}
-}

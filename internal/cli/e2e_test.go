@@ -804,7 +804,9 @@ capacity: { knob: rate, start: 50, max: 1600, step_duration: 2s, settle: 500ms, 
 	d := exec(t, "digest", id)
 	digest := validateAgainst(t, compileSchema(t, "digest"), d.stdout, "digest")
 	dc, _ := digest["capacity"].(map[string]any)
-	if dc == nil || dc["first_broken"] != b.FirstBroken || !strings.Contains(dc["summary"].(string), "breaks at") {
+	// Under load a confirmation run can flip, and the summary then gives a range rather
+	// than "holds at ... breaks at"; either way it is the result's own boundary.
+	if dc == nil || dc["first_broken"] != b.FirstBroken || dc["stable"] != b.Stable || !strings.HasPrefix(dc["summary"].(string), "Capacity ") {
 		t.Fatalf("digest capacity = %v", dc)
 	}
 }

@@ -85,11 +85,12 @@ func samplerSpec(cfg *config.Config, name, runID string, base time.Duration) (te
 func (e *Engine) runnerHealth() map[string]telemetry.RunnerHealth {
 	out := make(map[string]telemetry.RunnerHealth, len(e.runners))
 	for _, br := range e.runners {
-		if br.exec == nil {
+		ex := br.current()
+		if ex == nil {
 			continue
 		}
-		lag, ok := br.exec.RecentLag()
-		out[br.name] = telemetry.RunnerHealth{InFlight: br.exec.InFlight(), DispatchLagP99MS: lag, HasLag: ok}
+		lag, ok := ex.RecentLag()
+		out[br.name] = telemetry.RunnerHealth{InFlight: ex.InFlight(), DispatchLagP99MS: lag, HasLag: ok}
 	}
 	return out
 }

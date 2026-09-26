@@ -286,3 +286,27 @@ func TestStrainLine(t *testing.T) {
 		t.Fatalf("no strain line:\n%s", out)
 	}
 }
+
+func capacityFixture() *result.Capacity {
+	return &result.Capacity{Knob: "rate", Runner: "http",
+		Levels: []result.CapacityLevel{
+			{Level: 0, Phase: "doubling", Value: 200, OK: true, AchievedRPS: 199, P99MS: 13},
+			{Level: 1, Phase: "doubling", Value: 400, AchievedRPS: 380, P99MS: 130, BreakReason: "http p99 130ms > 100ms"},
+		},
+		Boundary: &result.Boundary{LastOK: 200, FirstBroken: 400, Stable: true},
+	}
+}
+
+func TestCapacitySection(t *testing.T) {
+	r := resulttest.NewRun(30).Analysed(analysis.Inputs{})
+	if out := render(t, r, clirender.Options{}); strings.Contains(out, "CAPACITY") {
+		t.Fatal("an ordinary run printed a capacity section")
+	}
+	r.Capacity = capacityFixture()
+	out := render(t, r, clirender.Options{Width: 100})
+	for _, want := range []string{"CAPACITY", "holds at 200/s and breaks at 400/s", "doubling", "LEVEL"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output lacks %q:\n%s", want, out)
+		}
+	}
+}

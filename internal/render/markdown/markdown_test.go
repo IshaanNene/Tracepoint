@@ -116,3 +116,23 @@ func TestStrainIsSummarised(t *testing.T) {
 		t.Fatalf("markdown:\n%s", out)
 	}
 }
+
+func TestCapacityLevels(t *testing.T) {
+	r := resulttest.NewRun(30).Analysed(analysis.Inputs{})
+	r.Capacity = &result.Capacity{Knob: "rate", Runner: "http",
+		Levels: []result.CapacityLevel{
+			{Level: 0, Phase: "doubling", Value: 200, OK: true, AchievedRPS: 199, P99MS: 13},
+			{Level: 1, Phase: "doubling", Value: 400, AchievedRPS: 380, P99MS: 130, BreakReason: "http p99 130ms > 100ms | <b>x</b>"},
+		},
+		Boundary: &result.Boundary{LastOK: 200, FirstBroken: 400, Stable: true},
+	}
+	out := render(t, r, markdown.Options{})
+	for _, want := range []string{"**Capacity:** Capacity holds at 200/s and breaks at 400/s", "| 1 | doubling | 400 | **no** |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "<b>") || strings.Contains(out, "100ms | <") {
+		t.Fatalf("a break reason escaped its cell:\n%s", out)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IshaanNene/Tracepoint/internal/capacity"
 	"github.com/IshaanNene/Tracepoint/internal/config"
 	"github.com/IshaanNene/Tracepoint/internal/policy"
 )
@@ -30,6 +31,26 @@ type Plan struct {
 	Safety       Safety    `json:"safety"`
 	Warnings     []Warning `json:"warnings,omitempty"`
 	TotalOffered float64   `json:"total_offered_operations"`
+	// Capacity describes an auto-ramp search. Its levels depend on the target, so the
+	// plan gives their ceiling and the most the search can take, not a schedule.
+	Capacity *Capacity `json:"capacity,omitempty"`
+}
+
+// Capacity is a capacity search's plan.
+type Capacity struct {
+	Knob       string  `json:"knob"`
+	Runner     string  `json:"runner"`
+	Start      float64 `json:"start"`
+	Max        float64 `json:"max"`
+	Refine     string  `json:"refine"`
+	Resolution float64 `json:"resolution,omitempty"`
+	Confirm    bool    `json:"confirm"`
+	StepS      float64 `json:"step_s"`
+	SettleS    float64 `json:"settle_s"`
+	CooldownS  float64 `json:"cooldown_s"`
+	// MaxLevels is the most levels the plan can run, whatever the target does; the
+	// run's duration is the search's time budget.
+	MaxLevels int `json:"max_levels"`
 }
 
 // Runner is one tier's share of the plan.
@@ -116,6 +137,30 @@ func Build(cfg *config.Config, effective policy.Policy, warnings []config.Warnin
 		p.Runners = append(p.Runners, pr)
 	}
 
+	if cp := cfg.Capacity; cp != nil {
+		c := &Capacity{
+			Knob: cp.Knob, Runner: cp.Runner, Start: cp.Start, Max: cp.Max, Refine: cp.Refine,
+			Resolution: cp.Resolution, Confirm: cp.Confirm == nil || *cp.Confirm,
+			StepS: cp.StepDuration.D().Seconds(), SettleS: cp.Settle.D().Seconds(), CooldownS: cp.Cooldown.D().Seconds(),
+		}
+		if sp, err := cp.Plan(); err == nil {
+			c.MaxLevels = capacity.MaxLevels(sp)
+		}
+		p.Capacity = c
+		// Every runner's load is the search's, level by level, so the profiles above
+		// describe nothing that will happen.
+		p.TotalOffered = 0
+		for i := range p.Runners {
+			r := &p.Runners[i]
+			r.Offered = 0
+			if r.Name == cp.Runner {
+				r.Profile = fmt.Sprintf("the search: %s from %g, doubling, up to %g", cp.Knob, cp.Start, cp.Max)
+			} else {
+				r.Profile = fmt.Sprintf("hold %g at every level", config.PeakRate(cfg.Executor(r.Name)))
+			}
+		}
+	}
+
 	for _, name := range []string{"http", "db", "redis"} {
 		t := cfg.SLO.For(name)
 		if t.P95 != nil {
@@ -180,14 +225,22 @@ func Render(p Plan) string {
 
 	for _, r := range p.Runners {
 		fmt.Fprintf(b, "  %-6s %-8s %s\n", r.Name, r.Kind, r.Profile)
-		if r.Executor == "vus" {
+		switch {
+		case p.Capacity != nil:
+			fmt.Fprintf(b, "         %d label(s)\n", len(r.Labels))
+		case r.Executor == "vus":
 			fmt.Fprintf(b, "         up to %.0f users, each looping as fast as the target answers; %d label(s)\n", r.PeakVUs, len(r.Labels))
-		} else {
+		default:
 			fmt.Fprintf(b, "         peak %.0f/s, about %.0f operations, %d label(s)\n", r.PeakRPS, r.Offered, len(r.Labels))
 		}
 		if len(r.Writes) > 0 {
 			fmt.Fprintf(b, "         writes: %s\n", strings.Join(r.Writes, ", "))
 		}
+	}
+	if c := p.Capacity; c != nil {
+		fmt.Fprintf(b, "\n  capacity search on %s's %s: %g to at most %g, levels of %s (%s settling), %s apart\n",
+			c.Runner, c.Knob, c.Start, c.Max, dur(c.StepS), dur(c.SettleS), dur(c.CooldownS))
+		fmt.Fprintf(b, "         refine by %s, confirm %v; at most %d levels, within %s\n", c.Refine, c.Confirm, c.MaxLevels, dur(p.DurationS))
 	}
 	if len(p.Targets) > 0 {
 		fmt.Fprintf(b, "\n  targets: %s\n", strings.Join(p.Targets, ", "))

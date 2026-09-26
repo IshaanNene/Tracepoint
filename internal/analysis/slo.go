@@ -8,7 +8,9 @@ import (
 // feels - over the measured window. A breach makes the command exit 1.
 func evaluateSLO(r *result.Result, in Inputs) result.SLO {
 	out := result.SLO{Pass: true}
-	if in.SLO.IsZero() {
+	// A capacity search breaks its SLOs on purpose, to find where they break; each
+	// level is judged against them instead, and the whole run is not.
+	if in.SLO.IsZero() || r.Capacity != nil {
 		return out
 	}
 	for i := range r.Runners {

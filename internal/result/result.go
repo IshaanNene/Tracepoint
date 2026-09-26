@@ -14,7 +14,7 @@ package result
 //
 // MAJOR.MINOR. Additive changes are MINOR and readers must ignore fields they do not
 // recognise. Anything else is MAJOR and needs a migration.
-const SchemaVersion = "1.1"
+const SchemaVersion = "1.2"
 
 // Result is one run.
 type Result struct {
@@ -459,7 +459,7 @@ type Strain struct {
 	NextWindow    any     `json:"next_window,omitempty"`
 }
 
-// Capacity is the outcome of an auto-ramp search. Populated from phase 7.
+// Capacity is the outcome of an auto-ramp search.
 type Capacity struct {
 	Knob     string          `json:"knob"`
 	Runner   string          `json:"runner,omitempty"`
@@ -474,6 +474,8 @@ type CapacityLevel struct {
 	Level           int     `json:"level"`
 	Phase           string  `json:"phase,omitempty"`
 	Value           float64 `json:"value"`
+	StartIndex      int     `json:"start_i"`
+	EndIndex        int     `json:"end_i"`
 	OK              bool    `json:"ok"`
 	BreakReason     string  `json:"break_reason,omitempty"`
 	OfferedRPS      float64 `json:"offered_rps,omitempty"`

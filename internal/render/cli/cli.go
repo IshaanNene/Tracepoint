@@ -73,6 +73,7 @@ func Render(w io.Writer, r *result.Result, opts Options) error {
 	writeIncidents(b, p, r)
 	writeVerdict(b, p, r, opts)
 	writeStrain(b, p, r, opts)
+	writeCapacity(b, p, r, opts)
 	writeArtifacts(b, p, r)
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
@@ -351,6 +352,32 @@ func writeStrain(b *strings.Builder, p painter, r *result.Result, opts Options) 
 	}
 	fmt.Fprintf(b, "  %s %s\n\n", p.paint(bold, pad("STRAIN", labelWidth)),
 		p.paint(colour, wrap(s.Message, opts.Width-labelWidth-4, strings.Repeat(" ", labelWidth+3))))
+}
+
+// writeCapacity is a search's outcome and every level it ran.
+func writeCapacity(b *strings.Builder, p painter, r *result.Result, opts Options) {
+	c := r.Capacity
+	if c == nil {
+		return
+	}
+	fmt.Fprintf(b, "  %s %s\n\n", p.paint(bold, pad("CAPACITY", labelWidth)),
+		wrap(c.Summary(), opts.Width-labelWidth-4, strings.Repeat(" ", labelWidth+3)))
+	rows := [][]string{{"LEVEL", "PHASE", c.Knob, "HELD", "ACHIEVED/S", "P99", "CULPRIT"}}
+	for _, l := range c.Levels {
+		// Plain text: the table pads by byte length, so colour would skew its columns.
+		held := "yes"
+		if !l.OK {
+			held = "no"
+		}
+		culprit := "-"
+		if l.Culprit != nil {
+			culprit = *l.Culprit
+		}
+		rows = append(rows, []string{strconv.Itoa(l.Level), l.Phase, render.Number(l.Value), held,
+			render.Number(l.AchievedRPS), render.MS(l.P99MS), culprit})
+	}
+	writeTable(b, p, rows, "  ")
+	b.WriteString("\n")
 }
 
 func writeArtifacts(b *strings.Builder, p painter, r *result.Result) {

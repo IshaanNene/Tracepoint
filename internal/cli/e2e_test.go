@@ -20,6 +20,7 @@ import (
 
 	"github.com/IshaanNene/Tracepoint/internal/cli"
 	"github.com/IshaanNene/Tracepoint/internal/errs"
+	"github.com/IshaanNene/Tracepoint/internal/result"
 )
 
 func TestMain(m *testing.M) {
@@ -704,5 +705,68 @@ http:
 	ds, _ := digest["strain"].(map[string]any)
 	if ds == nil || ds["found"] != true || ds["next_window"] == nil {
 		t.Fatalf("digest strain = %v", ds)
+	}
+}
+
+// A capacity search against a target that serves four requests at a time for 10ms
+// each - about 400 a second - finds its boundary between the levels either side of
+// that, confirms it, and records every level on one timeline.
+func TestCapacitySearch(t *testing.T) {
+	sem := make(chan struct{}, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case sem <- struct{}{}:
+		case <-r.Context().Done():
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+		<-sem
+	}))
+	t.Cleanup(srv.Close)
+	cfg := writeConfig(t, fmt.Sprintf(`
+version: 1
+run: { bucket: 500ms, seed: 3, timeout: 2s, grace: 2s, min_samples: 5 }
+slo:
+  http: { p99: 100ms }
+http:
+  base_url: %q
+  executor: { rate: 50, max_in_flight: 128 }
+  requests: [{ name: items, url: /items }]
+capacity: { knob: rate, start: 50, max: 1600, step_duration: 2s, settle: 500ms, cooldown: 500ms, resolution: 100 }
+`, srv.URL))
+	r := exec(t, "run", "-c", cfg, "--output", "json", "--log-level", "error")
+	if r.code != errs.ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	doc := validateAgainst(t, compileSchema(t, "result"), r.stdout, "result.json")
+	raw, _ := json.Marshal(doc["capacity"])
+	var c result.Capacity
+	if err := json.Unmarshal(raw, &c); err != nil || c.Knob != "rate" {
+		t.Fatalf("capacity = %s", raw)
+	}
+	phases := map[string]bool{}
+	prevEnd := -1
+	for _, l := range c.Levels {
+		phases[l.Phase] = true
+		if l.StartIndex <= prevEnd || l.EndIndex < l.StartIndex {
+			t.Fatalf("level %d spans buckets %d-%d after %d: levels must not overlap", l.Level, l.StartIndex, l.EndIndex, prevEnd)
+		}
+		prevEnd = l.EndIndex
+		if !l.OK && l.BreakReason == "" {
+			t.Fatalf("level %v broke without a reason", l.Value)
+		}
+		if l.OK && (l.AchievedRPS < 0.85*l.Value || l.MeanConcurrency <= 0) {
+			t.Fatalf("level %v held at %v/s, concurrency %v", l.Value, l.AchievedRPS, l.MeanConcurrency)
+		}
+	}
+	if !phases["doubling"] || !phases["confirm"] {
+		t.Fatalf("phases %v in %s", phases, raw)
+	}
+	b := c.Boundary
+	if b == nil || b.LastOK < 100 || b.LastOK > 400 || b.FirstBroken < 200 || b.FirstBroken > 800 {
+		t.Fatalf("boundary %+v for a ~400/s target; levels %s", b, raw)
+	}
+	if c.USL == nil {
+		t.Fatal("no USL section")
 	}
 }

@@ -167,6 +167,67 @@
             "object"
           ]
         },
+        "capacity": {
+          "additionalProperties": false,
+          "properties": {
+            "culprit": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "first_broken": {
+              "type": "number"
+            },
+            "knee": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "knob": {
+              "type": "string"
+            },
+            "last_ok": {
+              "type": "number"
+            },
+            "levels": {
+              "type": "integer"
+            },
+            "range": {
+              "items": {
+                "type": "number"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "stable": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "usl_peak_n": {
+              "type": "number"
+            },
+            "usl_peak_rps": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "knob",
+            "summary",
+            "stable",
+            "culprit",
+            "levels"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
         "caveats": {
           "items": {
             "additionalProperties": false,
@@ -1012,6 +1073,60 @@
         "bucket_s": {
           "type": "number"
         },
+        "capacity": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm": {
+              "type": "boolean"
+            },
+            "cooldown_s": {
+              "type": "number"
+            },
+            "knob": {
+              "type": "string"
+            },
+            "max": {
+              "type": "number"
+            },
+            "max_levels": {
+              "type": "integer"
+            },
+            "refine": {
+              "type": "string"
+            },
+            "resolution": {
+              "type": "number"
+            },
+            "runner": {
+              "type": "string"
+            },
+            "settle_s": {
+              "type": "number"
+            },
+            "start": {
+              "type": "number"
+            },
+            "step_s": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "knob",
+            "runner",
+            "start",
+            "max",
+            "refine",
+            "confirm",
+            "step_s",
+            "settle_s",
+            "cooldown_s",
+            "max_levels"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
         "config_path": {
           "type": "string"
         },
@@ -1681,6 +1796,67 @@
                   "type": "string"
                 }
               },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "capacity": {
+              "additionalProperties": false,
+              "properties": {
+                "culprit": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "first_broken": {
+                  "type": "number"
+                },
+                "knee": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "knob": {
+                  "type": "string"
+                },
+                "last_ok": {
+                  "type": "number"
+                },
+                "levels": {
+                  "type": "integer"
+                },
+                "range": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "stable": {
+                  "type": "boolean"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "usl_peak_n": {
+                  "type": "number"
+                },
+                "usl_peak_rps": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "knob",
+                "summary",
+                "stable",
+                "culprit",
+                "levels"
+              ],
               "type": [
                 "null",
                 "object"

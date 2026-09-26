@@ -79,6 +79,19 @@ func Render(w io.Writer, r *result.Result, opts Options) error {
 	if s := a.Strain; s != nil {
 		fmt.Fprintf(b, "**Strain:** %s\n\n", esc(s.Message))
 	}
+	if c := r.Capacity; c != nil {
+		fmt.Fprintf(b, "**Capacity:** %s\n\n", esc(c.Summary()))
+		fmt.Fprintf(b, "<details><summary>Levels</summary>\n\n| Level | Phase | %s | Held | Achieved/s | p99 | Why it broke |\n| ---: | --- | ---: | --- | ---: | ---: | --- |\n", esc(c.Knob))
+		for _, l := range c.Levels {
+			held, why := "yes", "—"
+			if !l.OK {
+				held, why = "**no**", esc(l.BreakReason)
+			}
+			fmt.Fprintf(b, "| %d | %s | %s | %s | %s | %s | %s |\n", l.Level, esc(l.Phase), render.Number(l.Value), held,
+				render.Number(l.AchievedRPS), render.MS(l.P99MS), why)
+		}
+		b.WriteString("\n</details>\n\n")
+	}
 	caveat := result.StandingCaveat
 	if v.Caveat != "" && v.Caveat != caveat {
 		caveat = v.Caveat + " " + caveat

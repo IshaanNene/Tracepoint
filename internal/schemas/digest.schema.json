@@ -7,7 +7,7 @@
   "required": ["schema_version", "run_id", "status", "validity", "slo", "verdict"],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "description": "Version of this document's shape, MAJOR.MINOR.", "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "examples": ["1.1"] },
+    "schema_version": { "description": "Version of this document's shape, MAJOR.MINOR.", "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "examples": ["1.2"] },
     "run_id": { "description": "The run this digest describes.", "type": "string", "examples": ["20260919T210000Z-a1b2c3"] },
     "run_name": { "description": "Human label given to the run, when one was set.", "type": "string" },
     "status": { "description": "How the run ended. Anything other than completed means the data is partial.", "enum": ["completed", "interrupted", "aborted", "failed"] },
@@ -206,6 +206,26 @@
             "to": { "type": "number", "minimum": 0 }
           }
         }
+      }
+    },
+
+    "capacity": {
+      "description": "A capacity search's answer, present only for one. Never dropped for budget; get_run_section levels returns every level. Added in 1.2.",
+      "type": "object",
+      "required": ["knob", "summary", "stable", "culprit", "levels"],
+      "additionalProperties": false,
+      "properties": {
+        "knob": { "enum": ["rate", "concurrency"] },
+        "summary": { "description": "The outcome in a sentence or two.", "type": "string" },
+        "last_ok": { "description": "Highest level that held, in the knob's units.", "type": "number" },
+        "first_broken": { "description": "Lowest level that broke.", "type": "number" },
+        "stable": { "description": "Whether re-running both sides reproduced them.", "type": "boolean" },
+        "range": { "description": "When unstable, the range the boundary lies in.", "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "culprit": { "description": "The tier that broke the first broken level, when one is attributable.", "type": ["string", "null"] },
+        "knee": { "description": "Level at which latency began climbing sharply.", "type": ["number", "null"] },
+        "usl_peak_n": { "description": "Concurrency of predicted peak throughput, when the scalability fit is reliable.", "type": "number" },
+        "usl_peak_rps": { "description": "Predicted peak throughput.", "type": "number" },
+        "levels": { "description": "How many levels ran.", "type": "integer", "minimum": 0 }
       }
     },
 

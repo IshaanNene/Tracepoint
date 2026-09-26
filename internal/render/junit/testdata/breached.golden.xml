@@ -9,7 +9,7 @@
       <property name="bottleneck" value="db"></property>
       <property name="confidence" value="medium"></property>
       <property name="tool_version" value="test"></property>
-      <property name="result_schema" value="1.1"></property>
+      <property name="result_schema" value="1.2"></property>
     </properties>
     <testcase name="run completed" classname="tracepoint.run" time="60.000"></testcase>
     <testcase name="validity valid" classname="tracepoint.validity" time="0.000"></testcase>

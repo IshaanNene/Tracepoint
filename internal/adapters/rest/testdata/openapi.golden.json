@@ -744,6 +744,67 @@
                       ],
                       "additionalProperties": false
                     },
+                    "capacity": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "knob": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "last_ok": {
+                          "type": "number"
+                        },
+                        "first_broken": {
+                          "type": "number"
+                        },
+                        "stable": {
+                          "type": "boolean"
+                        },
+                        "range": {
+                          "type": [
+                            "null",
+                            "array"
+                          ],
+                          "items": {
+                            "type": "number"
+                          }
+                        },
+                        "culprit": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
+                        },
+                        "knee": {
+                          "type": [
+                            "null",
+                            "number"
+                          ]
+                        },
+                        "usl_peak_n": {
+                          "type": "number"
+                        },
+                        "usl_peak_rps": {
+                          "type": "number"
+                        },
+                        "levels": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "knob",
+                        "summary",
+                        "stable",
+                        "culprit",
+                        "levels"
+                      ],
+                      "additionalProperties": false
+                    },
                     "recommendations": {
                       "type": [
                         "null",
@@ -1515,6 +1576,60 @@
                     },
                     "total_offered_operations": {
                       "type": "number"
+                    },
+                    "capacity": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "knob": {
+                          "type": "string"
+                        },
+                        "runner": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        },
+                        "refine": {
+                          "type": "string"
+                        },
+                        "resolution": {
+                          "type": "number"
+                        },
+                        "confirm": {
+                          "type": "boolean"
+                        },
+                        "step_s": {
+                          "type": "number"
+                        },
+                        "settle_s": {
+                          "type": "number"
+                        },
+                        "cooldown_s": {
+                          "type": "number"
+                        },
+                        "max_levels": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "knob",
+                        "runner",
+                        "start",
+                        "max",
+                        "refine",
+                        "confirm",
+                        "step_s",
+                        "settle_s",
+                        "cooldown_s",
+                        "max_levels"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -2669,6 +2784,67 @@
                             "users",
                             "rps",
                             "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "capacity": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "properties": {
+                            "knob": {
+                              "type": "string"
+                            },
+                            "summary": {
+                              "type": "string"
+                            },
+                            "last_ok": {
+                              "type": "number"
+                            },
+                            "first_broken": {
+                              "type": "number"
+                            },
+                            "stable": {
+                              "type": "boolean"
+                            },
+                            "range": {
+                              "type": [
+                                "null",
+                                "array"
+                              ],
+                              "items": {
+                                "type": "number"
+                              }
+                            },
+                            "culprit": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "knee": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "usl_peak_n": {
+                              "type": "number"
+                            },
+                            "usl_peak_rps": {
+                              "type": "number"
+                            },
+                            "levels": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "knob",
+                            "summary",
+                            "stable",
+                            "culprit",
+                            "levels"
                           ],
                           "additionalProperties": false
                         },

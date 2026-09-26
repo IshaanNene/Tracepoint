@@ -11,7 +11,7 @@ import (
 )
 
 // DigestSchemaVersion is the version of the digest document's shape.
-const DigestSchemaVersion = "1.1"
+const DigestSchemaVersion = "1.2"
 
 // DefaultDigestBudget is the character budget a digest is cut to when none is given:
 // small enough to read in full inside a context window, large enough to carry a
@@ -39,6 +39,7 @@ type Digest struct {
 	Correlation     []DigestCorrelation `json:"correlation,omitempty"`
 	Telemetry       []DigestTelemetry   `json:"telemetry,omitempty"`
 	Strain          *DigestStrain       `json:"strain,omitempty"`
+	Capacity        *DigestCapacity     `json:"capacity,omitempty"`
 	Recommendations []Recommendation    `json:"recommendations,omitempty"`
 	Artifacts       *DigestArtifacts    `json:"artifacts,omitempty"`
 	Truncated       bool                `json:"truncated"`
@@ -53,6 +54,22 @@ type DigestStrain struct {
 	RPS        float64 `json:"rps"`
 	Message    string  `json:"message"`
 	NextWindow any     `json:"next_window,omitempty"`
+}
+
+// DigestCapacity is a capacity search's answer. It is never dropped for budget: for
+// a search, it is the answer. Every level is one get_run_section away.
+type DigestCapacity struct {
+	Knob        string    `json:"knob"`
+	Summary     string    `json:"summary"`
+	LastOK      float64   `json:"last_ok,omitempty"`
+	FirstBroken float64   `json:"first_broken,omitempty"`
+	Stable      bool      `json:"stable"`
+	Range       []float64 `json:"range,omitempty"`
+	Culprit     *string   `json:"culprit"`
+	Knee        *float64  `json:"knee,omitempty"`
+	USLPeakN    float64   `json:"usl_peak_n,omitempty"`
+	USLPeakRPS  float64   `json:"usl_peak_rps,omitempty"`
+	Levels      int       `json:"levels"`
 }
 
 // DigestValidity is whether the run can be believed.
@@ -268,6 +285,19 @@ func fullDigest(r *Result) *Digest {
 	d.Telemetry = digestTelemetry(r)
 	if s := a.Strain; s != nil {
 		d.Strain = &DigestStrain{Found: s.Found, Users: s.Users, RPS: s.RPS, Message: s.Message, NextWindow: s.NextWindow}
+	}
+	if c := r.Capacity; c != nil {
+		dc := &DigestCapacity{Knob: c.Knob, Summary: c.Summary(), Knee: c.Knee, Levels: len(c.Levels)}
+		if b := c.Boundary; b != nil {
+			dc.LastOK, dc.FirstBroken, dc.Stable, dc.Range = b.LastOK, b.FirstBroken, b.Stable, b.Range
+		}
+		if l := c.firstBroken(); l != nil {
+			dc.Culprit = l.Culprit
+		}
+		if u := c.USL; u != nil && u.Fitted {
+			dc.USLPeakN, dc.USLPeakRPS = u.PeakN, u.PeakThroughput
+		}
+		d.Capacity = dc
 	}
 	d.Recommendations = Recommend(r)
 
@@ -511,6 +541,9 @@ func fit(d *Digest, budget int, ref, runID string) {
 	d.More = &DigestMore{
 		Hint:     fmt.Sprintf("tracepoint digest %s --budget-chars %d, or get_run_section for one section at a time", ref, budget*4),
 		Sections: []string{"incidents", "labels", "timeline", "telemetry"},
+	}
+	if d.Capacity != nil {
+		d.More.Sections = append(d.More.Sections, "levels")
 	}
 	for _, s := range steps {
 		if d.size() <= budget {

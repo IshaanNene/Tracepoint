@@ -106,14 +106,59 @@ type boundRunner struct {
 	name      string
 	runner    runner.Runner
 	collector *metrics.Collector
-	exec      executor.Executor
 	execType  string
-	stages    []result.Stage
-	startAt   float64
-	targets   []result.Target
-	recorder  metrics.Recorder
+	// mu guards exec and done: a capacity search replaces the executor at every level
+	// while the sweeper reads progress from it.
+	mu   sync.Mutex
+	exec executor.Executor
+	// done are the executors of levels already run, for the run's totals.
+	done     []executor.Stats
+	stages   []result.Stage
+	startAt  float64
+	targets  []result.Target
+	recorder metrics.Recorder
 	// lastSealed is the highest bucket already reported as sealed.
 	lastSealed int64
+}
+
+func (br *boundRunner) current() executor.Executor {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+	return br.exec
+}
+
+// setExec installs the next executor, keeping the statistics of the one it replaces.
+func (br *boundRunner) setExec(ex executor.Executor) {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+	if br.exec != nil {
+		br.done = append(br.done, br.exec.Stats())
+	}
+	br.exec = ex
+}
+
+// stats are the run's totals across every executor this runner has had. Counts add;
+// peaks take the maximum. Dispatch lag is the worst executor's, a bound rather than
+// an average - percentiles are never averaged.
+func (br *boundRunner) stats() executor.Stats {
+	br.mu.Lock()
+	all := append([]executor.Stats(nil), br.done...)
+	if br.exec != nil {
+		all = append(all, br.exec.Stats())
+	}
+	br.mu.Unlock()
+	var out executor.Stats
+	for _, st := range all {
+		out.Offered += st.Offered
+		out.Dispatched += st.Dispatched
+		out.Dropped += st.Dropped
+		out.PeakInFlight = max(out.PeakInFlight, st.PeakInFlight)
+		out.MaxInFlight = max(out.MaxInFlight, st.MaxInFlight)
+		if st.DispatchLag.P99 >= out.DispatchLag.P99 {
+			out.DispatchLag = st.DispatchLag
+		}
+	}
+	return out
 }
 
 // New prepares an engine. It does not touch the network; Run does.
@@ -218,10 +263,15 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 		br.runner.SetStart(e.start)
 	}
 	for _, br := range e.runners {
-		br.exec = nil // rebuilt below now that the start instant exists
+		br.mu.Lock()
+		br.exec, br.done = nil, nil // rebuilt below now that the start instant exists
+		br.mu.Unlock()
 	}
-	if err := e.buildExecutors(); err != nil {
-		return nil, err
+	search := cfg.Capacity != nil
+	if !search {
+		if err := e.buildExecutors(); err != nil {
+			return nil, err
+		}
 	}
 
 	// Arrivals follow the caller: cancelling ctx is a graceful stop and no further load
@@ -259,42 +309,22 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	// drain: a stall that outlasts the arrivals is still part of the story.
 	loop.Start(workCtx, e.start)
 
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(e.runners))
-	for _, br := range e.runners {
-		wg.Add(1)
-		go func(br *boundRunner) {
-			defer wg.Done()
-			if err := br.exec.Run(arrivalCtx, workCtx); err != nil {
-				errCh <- fmt.Errorf("runner %s: %w", br.name, err)
-			}
-		}(br)
-	}
-
-	// Arrivals end when the profile is exhausted; drain bounds how long in-flight work
-	// may continue past that before it is cut off.
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-
-	grace := cfg.Run.Grace.D()
-	select {
-	case <-done:
-	case <-e.after(grace + cfg.Run.Duration.D() + time.Minute):
-		// A safety net, not the normal path: the executors bound themselves.
-		cutOffWork()
-		<-done
+	var (
+		capacity *capacityRun
+		runErr   error
+	)
+	if search {
+		capacity, runErr = e.runSearch(arrivalCtx, workCtx)
+	} else {
+		runErr = e.drive(arrivalCtx, workCtx, cfg.Run.Duration.D())
 	}
 
 	cutOffWork()
 	sweeper()
 	elapsed := e.clk.Now().Sub(e.start)
 	stopTelemetry()
-
-	close(errCh)
-	for err := range errCh {
-		if err != nil {
-			return nil, err
-		}
+	if runErr != nil {
+		return nil, runErr
 	}
 
 	for _, br := range e.runners {
@@ -302,7 +332,45 @@ func (e *Engine) Run(ctx context.Context) (*result.Result, error) {
 	}
 	e.emitSealed()
 
-	return e.buildResult(startedAt, elapsed, loadString(&status), loadString(&interrupted), series)
+	return e.buildResult(startedAt, elapsed, loadString(&status), loadString(&interrupted), series, capacity)
+}
+
+// drive runs every runner's current executor to the end of its profile. Draining is
+// bounded by the executors themselves; the timer is only a safety net.
+func (e *Engine) drive(arrivalCtx, workCtx context.Context, length time.Duration) error {
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(e.runners))
+	for _, br := range e.runners {
+		ex := br.current()
+		if ex == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := ex.Run(arrivalCtx, workCtx); err != nil {
+				errCh <- fmt.Errorf("runner %s: %w", br.name, err)
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-e.after(e.opts.Config.Run.Grace.D() + length + time.Minute):
+		if e.cutOffWork != nil {
+			e.cutOffWork()
+		}
+		<-done
+	}
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // loadString reads a string written by the signal watcher on another goroutine.
@@ -421,45 +489,47 @@ func (e *Engine) buildExecutors() error {
 		if err != nil {
 			return err
 		}
-		br.execType = ex.Type
-		if ex.Type == "vus" {
-			// The closed model reads the same profile as a user count over time.
-			vus, verr := executor.NewVUs(executor.VUsConfig{
-				Runner: br.runner, Profile: profile, Collector: br.collector, Recorder: br.recorder,
-				Clock: e.clk, Start: e.start, PerVU: ex.Pick == "per-vu",
-				Grace: cfg.Run.Grace.D(), Seed: e.seed, Logger: e.log,
-			})
-			if verr != nil {
-				return verr
-			}
-			br.exec = vus
-			continue
-		}
-		br.execType = "arrival-rate"
-		// Each runner gets its own source, derived from the run seed and the runner's
-		// position, so adding a runner does not change another's sequence.
-		rng := rand.New(rand.NewPCG(e.seed, uint64(len(br.name)))) //nolint:gosec // reproducibility, not secrecy
-		sched, err := schedule.NewSchedule(profile, schedule.Arrival(cfg.Run.Arrival), rng)
+		exec, err := e.newExecutor(br, ex, profile, 0)
 		if err != nil {
 			return err
 		}
-
-		queue := executor.DefaultQueueDepth
-		if ex.QueueDepth != nil {
-			queue = *ex.QueueDepth
-		}
-		exec, err := executor.NewArrivalRate(executor.Config{
-			Runner: br.runner, Schedule: sched, Collector: br.collector, Recorder: br.recorder,
-			Clock: e.clk, Start: e.start,
-			MaxInFlight: ex.MaxInFlight, QueueDepth: queue,
-			Seed: e.seed, Logger: e.log,
-		})
-		if err != nil {
-			return err
-		}
-		br.exec = exec
+		br.setExec(exec)
 	}
 	return nil
+}
+
+// newExecutor builds the executor a runner's configuration asks for, reading profile
+// from origin on the run's timeline.
+func (e *Engine) newExecutor(br *boundRunner, ex *config.Executor, profile *schedule.Profile, origin time.Duration) (executor.Executor, error) {
+	cfg := e.opts.Config
+	if ex.Type == "vus" {
+		br.execType = "vus"
+		// The closed model reads the same profile as a user count over time.
+		return executor.NewVUs(executor.VUsConfig{
+			Runner: br.runner, Profile: profile, Collector: br.collector, Recorder: br.recorder,
+			Clock: e.clk, Start: e.start, Origin: origin, PerVU: ex.Pick == "per-vu",
+			Grace: cfg.Run.Grace.D(), Seed: e.seed, Logger: e.log,
+		})
+	}
+	br.execType = "arrival-rate"
+	// Each runner gets its own source, derived from the run seed and the runner's
+	// position - and, in a capacity search, the level's origin - so adding a runner
+	// does not change another's sequence.
+	rng := rand.New(rand.NewPCG(e.seed, uint64(len(br.name))+uint64(origin))) //nolint:gosec // reproducibility, not secrecy
+	sched, err := schedule.NewSchedule(profile, schedule.Arrival(cfg.Run.Arrival), rng)
+	if err != nil {
+		return nil, err
+	}
+	queue := executor.DefaultQueueDepth
+	if ex.QueueDepth != nil {
+		queue = *ex.QueueDepth
+	}
+	return executor.NewArrivalRate(executor.Config{
+		Runner: br.runner, Schedule: sched, Collector: br.collector, Recorder: br.recorder,
+		Clock: e.clk, Start: e.start, Origin: origin,
+		MaxInFlight: ex.MaxInFlight, QueueDepth: queue,
+		Seed: e.seed, Logger: e.log,
+	})
 }
 
 // preflight checks everything that can be checked before any load is generated.
@@ -564,8 +634,12 @@ func (e *Engine) startSweeper(ctx context.Context) func() {
 
 func (e *Engine) reportProgress(elapsed time.Duration) {
 	for _, br := range e.runners {
-		st := br.exec.Stats()
-		inFlight := br.exec.InFlight()
+		ex := br.current()
+		if ex == nil {
+			continue
+		}
+		st := br.stats()
+		inFlight := ex.InFlight()
 		snap := br.collector.Snapshot()
 		e.opts.Progress(Progress{
 			Elapsed: elapsed, Total: e.opts.Config.Run.Duration.D(),
@@ -584,7 +658,7 @@ func (e *Engine) closeRunners() {
 	}
 }
 
-func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status, interrupted string, series []telemetry.Series) (*result.Result, error) {
+func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status, interrupted string, series []telemetry.Series, search *capacityRun) (*result.Result, error) {
 	// An abort overrides whatever the run thought it was doing: the guard stopped it.
 	if reason, ok := e.aborted.Load().(string); ok && reason != "" {
 		status = result.StatusAborted
@@ -602,7 +676,7 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 	for _, br := range e.runners {
 		ri := result.RunnerInput{
 			Snapshot: br.collector.Snapshot(),
-			Stats:    br.exec.Stats(),
+			Stats:    br.stats(),
 			ExecType: br.execType,
 			Stages:   br.stages,
 		}
@@ -666,16 +740,24 @@ func (e *Engine) buildResult(startedAt time.Time, elapsed time.Duration, status,
 		}
 		in.Runners = append(in.Runners, ri)
 	}
+	if search != nil {
+		in.Warnings = append(in.Warnings, search.warnings...)
+	}
 	res, err := result.Build(in)
 	if err != nil {
 		return nil, err
 	}
 	cfg := e.opts.Config
-	res.Analysis = analysis.Analyse(res, analysis.Inputs{
+	inputs := analysis.Inputs{
 		SLO:            cfg.SLO,
 		FlagThresholds: e.opts.Thresholds,
 		Telemetry:      cfg.Samplers(),
-	})
+	}
+	if search != nil {
+		res.Capacity = search.result
+		analysis.AttributeLevels(res, inputs)
+	}
+	res.Analysis = analysis.Analyse(res, inputs)
 	return res, nil
 }
 

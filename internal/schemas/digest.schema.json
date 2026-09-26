@@ -39,6 +39,22 @@
       }
     },
 
+    "caveats": {
+      "description": "What the configuration could not see or was warned about before the run - such as a database probe that touches no table - so a clean result is not read as more than it proves. Added in 1.1.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "description": "Stable code from docs/ERRORS.md.", "type": "string", "examples": ["PROBE_TRIVIAL"] },
+          "severity": { "enum": ["info", "warn", "error"] },
+          "message": { "type": "string" },
+          "fix": { "type": "string" }
+        }
+      }
+    },
+
     "slo": {
       "description": "Budget outcome. pass false is why the command exited 1.",
       "type": "object",

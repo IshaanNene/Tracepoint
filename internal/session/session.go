@@ -96,7 +96,7 @@ func Load(ctx context.Context, req Request) (*config.Config, policy.Policy, []co
 	if err != nil {
 		return nil, policy.Policy{}, nil, err
 	}
-	return cfg, effective, warnings, nil
+	return cfg, effective, append(warnings, cfg.Caveats()...), nil
 }
 
 // Prepared is a validated run with a directory on disk.
@@ -504,7 +504,11 @@ func ExitFor(res *result.Result, allowInvalid bool) (int, error) {
 func planWarnings(in []config.Warning) []result.Finding {
 	out := make([]result.Finding, 0, len(in))
 	for _, w := range in {
-		out = append(out, result.Finding{Code: w.Code, Severity: result.SeverityWarn, Message: w.Message, Fix: w.Fix})
+		severity := w.Severity
+		if severity == "" {
+			severity = result.SeverityWarn
+		}
+		out = append(out, result.Finding{Code: w.Code, Severity: severity, Message: w.Message, Fix: w.Fix})
 	}
 	return out
 }

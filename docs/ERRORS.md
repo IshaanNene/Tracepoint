@@ -147,6 +147,7 @@ Findings are not failures: they appear in `analysis.validity.findings`, in
 | `MAX_CONNECTIONS_EXCEEDED` | warn | `pool.max_open` is above the server's `max_connections`; the server will refuse connections under load |
 | `CONN_REUSE_LOW` | warn | Keep-alive is on but connections were not reused — usually `max_idle_conns_per_host` below `max_in_flight` |
 | `DANGEROUS_COMMAND` | warn | An O(N) blocking command such as `KEYS` is in the mix; it will distort both the target and the measurement |
+| `PROBE_TRIVIAL` | info | Every database probe query is `SELECT 1`: it sees the connection and the server but none of the application's tables, so a healthy probe does not clear the database. Probe with a query the application runs |
 | `LABEL_OVERFLOW` | info | More than 50 labels for a runner; the remainder are collected under `other` |
 | `LABEL_TIMELINE_DROPPED` | info | Per-label timelines exceeded the retention budget and were dropped. Charts lose per-label detail; no analysis is affected ([ADR-002](adr/002-sketches-and-memory.md)) |
 | `INSUFFICIENT_SAMPLES` | info | Buckets fell below `min_samples`. They are drawn but never used as evidence |

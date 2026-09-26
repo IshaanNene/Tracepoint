@@ -16,6 +16,8 @@ type Warning struct {
 	Code    string
 	Message string
 	Fix     string
+	// Severity is warn when empty; info marks context rather than a concern.
+	Severity string
 }
 
 // ApplyPolicy resolves the effective envelope for this configuration and refuses

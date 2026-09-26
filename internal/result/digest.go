@@ -31,6 +31,7 @@ type Digest struct {
 	StartedAt       string              `json:"started_at,omitempty"`
 	DurationS       float64             `json:"duration_s,omitempty"`
 	Validity        DigestValidity      `json:"validity"`
+	Caveats         []DigestFinding     `json:"caveats,omitempty"`
 	SLO             DigestSLO           `json:"slo"`
 	Verdict         DigestVerdict       `json:"verdict"`
 	Incidents       []DigestIncident    `json:"incidents,omitempty"`
@@ -250,6 +251,10 @@ func fullDigest(r *Result) *Digest {
 		d.Verdict.Evidence = append(d.Verdict.Evidence, e.Text)
 	}
 
+	for _, f := range r.Warnings {
+		d.Caveats = append(d.Caveats, DigestFinding{Code: f.Code, Severity: f.Severity, Message: f.Message, Fix: f.Fix})
+	}
+
 	for _, inc := range worstFirst(a.Incidents) {
 		d.Incidents = append(d.Incidents, digestIncident(inc))
 	}
@@ -431,6 +436,7 @@ func fit(d *Digest, budget int, ref, runID string) {
 	}{
 		{"telemetry", func() bool { return drop(&d.Telemetry) }},
 		{"correlation", func() bool { return drop(&d.Correlation) }},
+		{"caveats", func() bool { return drop(&d.Caveats) }},
 		{"strain", func() bool {
 			if d.Strain == nil {
 				return false

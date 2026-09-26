@@ -167,6 +167,35 @@
             "object"
           ]
         },
+        "caveats": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "fix": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
         "correlation": {
           "items": {
             "additionalProperties": false,
@@ -1284,6 +1313,10 @@
           "description": "Name of the environment variable holding the database DSN, such as DATABASE_URL. The file references it; the value is never written.",
           "type": "string"
         },
+        "db_query": {
+          "description": "The database probe's query. Defaults to SELECT 1, which sees the connection but none of the application's tables; a read the application itself performs is a far better probe.",
+          "type": "string"
+        },
         "duration": {
           "description": "Run length as a Go duration, such as 30s or 3m. Defaults to 30s.",
           "type": "string"
@@ -1619,6 +1652,35 @@
               "type": [
                 "null",
                 "object"
+              ]
+            },
+            "caveats": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "fix": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "severity",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
               ]
             },
             "correlation": {

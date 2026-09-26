@@ -947,3 +947,42 @@ func TestNegativeOffsetLandsInTheFirstBucket(t *testing.T) {
 		t.Errorf("BucketIndexOf(2.5s) = %d, want 2", got)
 	}
 }
+
+// A window merges its buckets' sketches: its p99 is the p99 of every operation in it,
+// which averaging the buckets' own p99s would not give.
+func TestWindowMergesSketches(t *testing.T) {
+	t.Parallel()
+	c := newCollector(t, testConfig("probe"))
+	id, err := c.OpenWindow(1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bucket 0 is outside the window; bucket 1 is fast; bucket 2 has one slow tail.
+	for i := range 100 {
+		c.Record(outcome(0, time.Duration(i)*time.Millisecond, 0, 500*time.Millisecond))
+		c.Record(outcome(0, time.Second+time.Duration(i)*time.Millisecond, 0, 10*time.Millisecond))
+		svc := 10 * time.Millisecond
+		if i < 5 {
+			svc = 200 * time.Millisecond
+		}
+		c.Record(outcome(0, 2*time.Second+time.Duration(i)*time.Millisecond, 0, svc))
+		c.RecordOffered(1)
+		c.RecordOffered(2)
+	}
+	c.SealBefore(3)
+	w := c.Window(id)
+	if w.N != 200 || w.Offered != 200 {
+		t.Fatalf("window n %d offered %d, want 200 each", w.N, w.Offered)
+	}
+	// 5 slow of 200 is 2.5%: p99 of the whole window is slow, p95 is not.
+	if w.Response.P99 < 190 || w.Response.P95 > 15 {
+		t.Fatalf("window p95 %.1f p99 %.1f", w.Response.P95, w.Response.P99)
+	}
+	if w.AchievedRPS != 100 {
+		t.Fatalf("achieved %v/s over a two-second window, want 100", w.AchievedRPS)
+	}
+	// Sealing early marks the buckets sealed, so later sweeps do not touch them.
+	if c.OpenBuckets() != 0 {
+		t.Fatalf("%d buckets still open", c.OpenBuckets())
+	}
+}

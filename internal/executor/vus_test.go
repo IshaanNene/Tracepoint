@@ -156,3 +156,34 @@ func TestVUsStopOnCancel(t *testing.T) {
 		t.Fatalf("cancelled after 150ms, returned after %s", took)
 	}
 }
+
+// The closed model reads its profile from Origin, so a level that starts three
+// seconds into a run holds its users for the profile's length from there.
+func TestVUsOriginShiftsTheProfile(t *testing.T) {
+	r := &fakeRunner{clk: clock.New(), service: 10 * time.Millisecond}
+	clk := clock.New()
+	origin := 3 * time.Second
+	start := clk.Now().Add(-origin)
+	col := newCollector(t)
+	r.SetStart(start)
+	e, err := executor.NewVUs(executor.VUsConfig{
+		Runner: r, Profile: vuProfile(t, 2, schedule.Stage{Duration: 200 * time.Millisecond, Target: 2}),
+		Collector: col, Clock: clk, Start: start, Origin: origin, Grace: time.Second, Seed: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := clk.Now()
+	if err := e.Run(context.Background(), context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if took := clk.Now().Sub(began); took < 150*time.Millisecond || took > 600*time.Millisecond {
+		t.Fatalf("a 200ms profile from its origin took %s", took)
+	}
+	col.Finish(time.Hour)
+	for _, b := range col.Snapshot().Buckets {
+		if b.N > 0 && b.Index != 3 {
+			t.Fatalf("an iteration landed in bucket %d, want 3", b.Index)
+		}
+	}
+}

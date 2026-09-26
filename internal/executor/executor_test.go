@@ -429,3 +429,52 @@ func TestNoGoroutinesOutliveRun(t *testing.T) {
 	wg.Wait()
 	// goleak in TestMain is the actual assertion; reaching here means Run returned.
 }
+
+// A level of a capacity search starts partway into the run: its schedule is offset by
+// Origin, so its arrivals and their buckets land where the level is on the timeline.
+func TestOriginShiftsTheSchedule(t *testing.T) {
+	t.Parallel()
+	clk := clock.NewFake(epoch)
+	col := newCollector(t)
+	rnr := &fakeRunner{clk: clk, start: epoch}
+	e, err := executor.NewArrivalRate(executor.Config{
+		Runner: rnr, Schedule: constantSchedule(t, 10, time.Second),
+		Collector: col, Clock: clk, Start: epoch, Origin: 5 * time.Second, MaxInFlight: 4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- e.Run(context.Background(), context.Background()) }()
+	deadline := time.After(5 * time.Second)
+	for running := true; running; {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			running = false
+		case <-deadline:
+			t.Fatal("the executor did not finish")
+		default:
+			if clk.Now().Sub(epoch) < 5*time.Second && rnr.started.Load() > 0 {
+				t.Fatal("an arrival was offered before the origin")
+			}
+			clk.Advance(10 * time.Millisecond)
+			time.Sleep(time.Millisecond)
+		}
+	}
+	col.Finish(time.Hour)
+	// Uniform arrivals at 0.1s..1.0s after the origin: nine in bucket 5, and the tenth
+	// exactly on the boundary of bucket 6 - as they would be at 0.1s..1.0s unshifted.
+	var n int64
+	for _, b := range col.Snapshot().Buckets {
+		if b.N > 0 && b.Index < 5 {
+			t.Fatalf("arrivals in bucket %d, before the origin", b.Index)
+		}
+		n += b.N
+	}
+	if n != 10 {
+		t.Fatalf("%d arrivals, want 10", n)
+	}
+}

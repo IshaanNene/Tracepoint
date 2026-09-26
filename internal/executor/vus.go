@@ -44,6 +44,9 @@ type VUsConfig struct {
 	Recorder  metrics.Recorder
 	Clock     clock.Clock
 	Start     time.Time
+	// Origin is where on the run's timeline the profile begins: zero for an ordinary
+	// run, the level's start for a level of a capacity search.
+	Origin time.Duration
 	// PerVU pins each user to its first weighted choice (pick: per-vu).
 	PerVU bool
 	// Grace is how long users still mid-iteration when the profile ends may take to
@@ -130,7 +133,7 @@ func (e *VUs) Run(arrivalCtx, workCtx context.Context) error {
 	}
 
 	for {
-		elapsed := e.elapsed()
+		elapsed := max(e.elapsed()-e.cfg.Origin, 0)
 		if elapsed >= e.cfg.Profile.Duration() || arrivalCtx.Err() != nil || workCtx.Err() != nil {
 			break
 		}

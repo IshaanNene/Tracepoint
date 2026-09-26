@@ -280,6 +280,24 @@ type Collector struct {
 	labelBuckets         map[LabelID][]BucketSummary
 	labelTimelineEntries int
 	labelTimelineDropped bool
+	// windows are spans of buckets merged into one accumulator as they seal, for a
+	// capacity level's steady window. Guarded by mu.
+	windows []*window
+}
+
+// window is a half-open span of bucket indexes, [from, to), and what its buckets held.
+type window struct {
+	from, to         int64
+	acc              *accum
+	offered, dropped int64
+}
+
+// WindowSummary is a window's figures, from sketches merged across its buckets -
+// never an average of their percentiles.
+type WindowSummary struct {
+	OpSummary
+	Offered int64 `json:"offered"`
+	Dropped int64 `json:"dropped"`
 }
 
 // NewCollector builds a collector for one runner.
@@ -638,6 +656,18 @@ func (c *Collector) sealSlotLocked(s *slot) {
 		a.reset()
 	}
 
+	c.mu.Lock()
+	for _, w := range c.windows {
+		if idx >= w.from && idx < w.to {
+			w.offered += summary.Offered
+			w.dropped += summary.Dropped
+			if runnerRoll != nil {
+				c.merge(w.acc, runnerRoll)
+			}
+		}
+	}
+	c.mu.Unlock()
+
 	if runnerRoll != nil {
 		summary.N = runnerRoll.n
 		summary.ErrorsTotal = runnerRoll.n - runnerRoll.errs[ClassOK]
@@ -713,6 +743,59 @@ func (c *Collector) recordLabelBucket(id LabelID, idx int64, a *accum, warmup bo
 		b.RPS = float64(b.N) / secs
 	}
 	c.labelBuckets[id] = append(c.labelBuckets[id], b)
+}
+
+// OpenWindow starts collecting the buckets [from, to) into one summary, and returns
+// its identifier. Open it before the first of its buckets seals.
+func (c *Collector) OpenWindow(from, to int64) (int, error) {
+	acc, err := newAccum(c.cfg.RelativeAccuracy)
+	if err != nil {
+		return 0, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.windows = append(c.windows, &window{from: from, to: to, acc: acc})
+	return len(c.windows) - 1, nil
+}
+
+// Window summarises a window's sealed buckets. Throughput is over the window's whole
+// span.
+func (c *Collector) Window(id int) WindowSummary {
+	c.mu.Lock()
+	w := c.windows[id]
+	offered, dropped := w.offered, w.dropped
+	c.mu.Unlock()
+	return WindowSummary{
+		OpSummary: w.acc.summary(time.Duration(w.to-w.from) * c.cfg.BucketWidth),
+		Offered:   offered, Dropped: dropped,
+	}
+}
+
+// SealBefore seals every open bucket with an index below idx, without waiting for the
+// seal delay. Call it only when nothing still in flight can belong to those buckets -
+// between the levels of a capacity search, once a level has drained.
+func (c *Collector) SealBefore(idx int64) {
+	// In index order, as sealing always is: the event stream relies on it.
+	type open struct {
+		s   *slot
+		idx int64
+	}
+	var slots []open
+	for _, s := range c.ring {
+		s.mu.RLock()
+		if s.index >= 0 && s.index < idx {
+			slots = append(slots, open{s, s.index})
+		}
+		s.mu.RUnlock()
+	}
+	sort.Slice(slots, func(a, b int) bool { return slots[a].idx < slots[b].idx })
+	for _, o := range slots {
+		o.s.mu.Lock()
+		if o.s.index == o.idx {
+			c.sealSlotLocked(o.s)
+		}
+		o.s.mu.Unlock()
+	}
 }
 
 // Finish seals everything still open, regardless of the seal delay. Call it once, at

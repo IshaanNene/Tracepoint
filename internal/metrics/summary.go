@@ -121,9 +121,9 @@ func (c *Collector) Snapshot() Snapshot {
 			continue
 		}
 		snap.LabelSummaries[name] = s
-		snap.Sketches[name] = EncodeSketch(a.response, c.cfg.RelativeAccuracy)
+		snap.Sketches[name] = a.encodeResponse(c.cfg.RelativeAccuracy)
 	}
-	snap.Sketches[RunnerSketchKey] = EncodeSketch(c.wholeRunner.response, c.cfg.RelativeAccuracy)
+	snap.Sketches[RunnerSketchKey] = c.wholeRunner.encodeResponse(c.cfg.RelativeAccuracy)
 
 	// The timeline is contiguous from the first to the last bucket that saw activity.
 	// Gaps are emitted as empty buckets rather than omitted, because the analysis
@@ -186,6 +186,14 @@ func (c *Collector) measuredWindow() time.Duration {
 		return 0
 	}
 	return time.Duration(last+1-start) * c.cfg.BucketWidth
+}
+
+// encodeResponse serialises the response sketch under the accumulator's lock: sealing
+// may be merging into it from another goroutine.
+func (a *accum) encodeResponse(relativeAccuracy float64) EncodedSketch {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return EncodeSketch(a.response, relativeAccuracy)
 }
 
 // rejectedCount reads the rejection tally under the accumulator's own lock.

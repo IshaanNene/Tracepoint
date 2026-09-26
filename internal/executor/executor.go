@@ -47,6 +47,9 @@ type Config struct {
 	// Start is the single monotonic instant every runner and sampler shares. Arrival
 	// offsets are measured from it.
 	Start time.Time
+	// Origin is where on that timeline the schedule begins: zero for an ordinary run,
+	// the level's start for a level of a capacity search.
+	Origin time.Duration
 
 	MaxInFlight int
 	QueueDepth  int
@@ -164,6 +167,7 @@ func (e *ArrivalRate) generate(ctx context.Context) error {
 		if !ok {
 			return nil // the profile is exhausted: a normal end
 		}
+		at += e.cfg.Origin
 		if err := e.cfg.Clock.SleepUntil(ctx, e.cfg.Start.Add(at)); err != nil {
 			// Cancellation is how a graceful stop and a signal both arrive. It is not
 			// a failure, so the run keeps whatever it has measured.
